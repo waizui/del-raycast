@@ -1,5 +1,8 @@
 use std::io::{BufRead, Seek, SeekFrom};
 use del_msh_core::vtx2xyz::transform;
+use del_geo_core::mat4_col_major::try_inverse;
+use del_geo_core::mat4_col_major::transform_homogeneous;
+use del_geo_core::mat4_col_major::transform_vector;
 
 struct TriangleMesh {
     vtx2uv: Vec<f32>,
@@ -136,6 +139,23 @@ fn parse_pbrt_file(file_path: &str) -> anyhow::Result<(Vec<TriangleMesh>, f32, [
     Ok((trimesh3s, camera_fov, transform_world2ndc, img_shape))
 }
 
+fn cast_ray(ix: usize, iy: usize, img_shape: (usize, usize), fov: f32, transform: [f32; 16], screen_height: f32) -> anyhow::Result<([f32;3], [f32;3])> {
+    assert!(ix < img_shape.0 && iy < img_shape.1);
+    let focal_dis = screen_height / 2.0 / (fov/2.0).to_radians().tan();
+    let screen_width = screen_height * img_shape.0 as f32 / img_shape.1 as f32;
+    let x = (ix as f32 + 0.5) / img_shape.0 as f32 * screen_width - screen_width / 2.0;
+    let y = (iy as f32 + 0.5) / img_shape.1 as f32 * screen_height - screen_height / 2.0;
+    let z = focal_dis;
+    let mut dir = [x, y, z];
+    let mut org = [0.0, 0.0, 0.0];
+
+    let inv_transform = try_inverse(&transform).unwrap();
+    dir = transform_vector(&inv_transform, &dir);
+    org = transform_homogeneous(&inv_transform, &org).unwrap();
+
+    Ok((org, dir))
+}
+
 fn main() -> anyhow::Result<()>{
     let pbrt_file_path = "examples/asset/cornell-box/scene-v4.pbrt";
     let (trimeshs, camera_fov, transform, img_shape)
@@ -154,8 +174,9 @@ fn main() -> anyhow::Result<()>{
 
     for iw in 0..img_shape.0 {
         for ih in 0..img_shape.1 {
-            // let (ray_org, ray_dir) = compute_ray(iw, ih, img_shape, camera_fov, transform);
+            let (ray_org, ray_dir) = cast_ray(iw, ih, img_shape, camera_fov, transform, 1.0)?;
             // compute intersection below
+            println!("ray_org: {:?}, ray_dir: {:?}", ray_org, ray_dir);
         }
     }
     Ok(())
