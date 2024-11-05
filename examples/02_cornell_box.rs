@@ -1,4 +1,5 @@
 use std::io::{BufRead, Seek, SeekFrom};
+use del_msh_core::uniform_mesh::vtx2vtx;
 use del_msh_core::vtx2xyz::transform;
 
 struct TriangleMesh {
@@ -156,6 +157,7 @@ fn main() -> anyhow::Result<()>{
         for ih in 0..img_shape.1 {
             // let (ray_org, ray_dir) = compute_ray(iw, ih, img_shape, camera_fov, transform);
             // compute intersection below
+            // del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(ray_org, ray_dir, vtx2xyz, vtx2vtx)
         }
     }
     Ok(())
