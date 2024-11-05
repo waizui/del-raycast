@@ -138,7 +138,7 @@ fn parse_pbrt_file(file_path: &str) -> anyhow::Result<(Vec<TriangleMesh>, f32, [
 
 fn main() -> anyhow::Result<()>{
     let pbrt_file_path = "examples/asset/cornell-box/scene-v4.pbrt";
-    let (trimeshs, camera_fov, transform_world2ndc, img_shape)
+    let (trimeshs, camera_fov, transform, img_shape)
         = parse_pbrt_file(pbrt_file_path)?;
     {
         let mut tri2vtx: Vec<usize> = vec!();
@@ -152,5 +152,11 @@ fn main() -> anyhow::Result<()>{
             "target/2_cornell_box.obj", &tri2vtx, &vtx2xyz, 3)?;
     }
 
+    for iw in 0..img_shape.0 {
+        for ih in 0..img_shape.1 {
+            // let (ray_org, ray_dir) = compute_ray(iw, ih, img_shape, camera_fov, transform);
+            // compute intersection below
+        }
+    }
     Ok(())
 }
