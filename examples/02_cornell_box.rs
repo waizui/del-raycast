@@ -1,46 +1,51 @@
-use std::io::{BufRead, Seek, SeekFrom};
+use del_geo_core::mat4_col_major::transform_homogeneous;
+use del_geo_core::mat4_col_major::transform_vector;
+use del_geo_core::mat4_col_major::try_inverse;
 use del_msh_core::vtx2xyz::transform;
+use std::io::{BufRead, Seek, SeekFrom};
 
 struct TriangleMesh {
     vtx2uv: Vec<f32>,
     vtx2nrm: Vec<f32>,
     vtx2xyz: Vec<f32>,
-    tri2vtx: Vec<usize>
+    tri2vtx: Vec<usize>,
 }
 
 impl TriangleMesh {
     fn new() -> Self {
         TriangleMesh {
-            vtx2uv: vec!(),
-            vtx2nrm: vec!(),
-            vtx2xyz: vec!(),
-            tri2vtx: vec!(),
+            vtx2uv: vec![],
+            vtx2nrm: vec![],
+            vtx2xyz: vec![],
+            tri2vtx: vec![],
         }
     }
     fn add(&mut self, tag: &String, vals: &Vec<String>) {
         match tag.as_str() {
-            "point2 uv" => self.vtx2uv = vals.iter().map(|v| v.parse().unwrap() ).collect(),
-            "normal N" => self.vtx2nrm = vals.iter().map(|v| v.parse().unwrap() ).collect(),
-            "point3 P" => self.vtx2xyz = vals.iter().map(|v| v.parse().unwrap() ).collect(),
-            "integer indices" => self.tri2vtx = vals.iter().map(|v| v.parse().unwrap() ).collect(),
+            "point2 uv" => self.vtx2uv = vals.iter().map(|v| v.parse().unwrap()).collect(),
+            "normal N" => self.vtx2nrm = vals.iter().map(|v| v.parse().unwrap()).collect(),
+            "point3 P" => self.vtx2xyz = vals.iter().map(|v| v.parse().unwrap()).collect(),
+            "integer indices" => self.tri2vtx = vals.iter().map(|v| v.parse().unwrap()).collect(),
             _ => panic!("{}", tag),
         };
     }
 }
 
-fn parse(reader: &mut std::io::BufReader<std::fs::File>) -> anyhow::Result<(String, Vec<String>)>{
+fn parse(reader: &mut std::io::BufReader<std::fs::File>) -> anyhow::Result<(String, Vec<String>)> {
     let mut a: String = "".to_string();
     let ipos = reader.seek(SeekFrom::Current(0)).unwrap();
     let tag = {
         reader.read_line(&mut a)?;
         a = a.trim_start().to_string();
-        if a.is_empty() || a.chars().nth(0).unwrap() != '"' { // if start with \"
+        if a.is_empty() || a.chars().nth(0).unwrap() != '"' {
+            // if start with \"
             reader.seek(SeekFrom::Start(ipos)).unwrap(); // re-wind
-            return Ok(("".to_string(),vec!()));
+            return Ok(("".to_string(), vec![]));
         }
         a = a.trim_end().to_string();
         let re = regex::Regex::new(r##""([^"]*)""##).unwrap(); // extract double quoted word
-        let tags: Vec<String> = re.captures_iter(&a)
+        let tags: Vec<String> = re
+            .captures_iter(&a)
             .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
             .collect();
         if tags.is_empty() {
@@ -48,7 +53,7 @@ fn parse(reader: &mut std::io::BufReader<std::fs::File>) -> anyhow::Result<(Stri
         }
         tags[0].clone()
     };
-    a = a[tag.len()+2..].to_string();
+    a = a[tag.len() + 2..].to_string();
     a = a.trim_start().to_string();
     assert!(a.starts_with("["));
     loop {
@@ -59,11 +64,13 @@ fn parse(reader: &mut std::io::BufReader<std::fs::File>) -> anyhow::Result<(Stri
         a = a.trim_end().to_string();
     }
     let a: Vec<_> = a.split_whitespace().collect();
-    let a: Vec<_> = a[1..a.len()-1].iter().map(|v|v.to_string()).collect();
+    let a: Vec<_> = a[1..a.len() - 1].iter().map(|v| v.to_string()).collect();
     Ok((tag, a))
 }
 
-fn parse_pbrt_file(file_path: &str) -> anyhow::Result<(Vec<TriangleMesh>, f32, [f32;16], (usize, usize))> {
+fn parse_pbrt_file(
+    file_path: &str,
+) -> anyhow::Result<(Vec<TriangleMesh>, f32, [f32; 16], (usize, usize))> {
     let path = std::path::Path::new(file_path);
     let file = std::fs::File::open(&path)?;
     use std::io::BufRead;
@@ -71,29 +78,27 @@ fn parse_pbrt_file(file_path: &str) -> anyhow::Result<(Vec<TriangleMesh>, f32, [
     let mut a: String = "".to_string(); // buffer
     let mut trimesh3s = Vec::<TriangleMesh>::new();
     let mut camera_fov = f32::NAN;
-    let mut transform_world2ndc = [0f32;16];
+    let mut transform_world2ndc = [0f32; 16];
     let mut img_shape = (usize::MAX, usize::MAX);
-    while reader.read_line(&mut a)? > 0  {
+    while reader.read_line(&mut a)? > 0 {
         if a.starts_with("Camera") {
             let (tag, strs) = parse(&mut reader)?;
             dbg!(&tag, &strs);
             assert_eq!(tag, "float fov");
             camera_fov = strs[0].parse()?;
-        }
-        else if a.starts_with("Transform") {
+        } else if a.starts_with("Transform") {
             dbg!(&a);
             let a = a["Transform".len()..].to_string();
             let a = a.trim().to_string();
             let mut vals: Vec<_> = a.split_whitespace().collect();
             dbg!(&vals);
-            assert_eq!(vals.len(),18);
-            assert_eq!(vals[0],"[");
-            assert_eq!(vals[vals.len()-1],"]");
-            transform_world2ndc = std::array::from_fn(|i| vals[i+1].parse().unwrap());
-        }
-        else if a.starts_with("Shape") {
+            assert_eq!(vals.len(), 18);
+            assert_eq!(vals[0], "[");
+            assert_eq!(vals[vals.len() - 1], "]");
+            transform_world2ndc = std::array::from_fn(|i| vals[i + 1].parse().unwrap());
+        } else if a.starts_with("Shape") {
             let vals: Vec<_> = a.split(" ").collect();
-            if vals[1].trim() ==  "\"trianglemesh\"" {
+            if vals[1].trim() == "\"trianglemesh\"" {
                 let mut trimesh3 = TriangleMesh::new();
                 loop {
                     let (tag, strs) = parse(&mut reader)?;
@@ -103,20 +108,18 @@ fn parse_pbrt_file(file_path: &str) -> anyhow::Result<(Vec<TriangleMesh>, f32, [
                     trimesh3.add(&tag, &strs);
                 }
                 trimesh3s.push(trimesh3);
-            }
-            else {
+            } else {
                 todo!();
             }
-        }
-        else if a.starts_with("Film") {
+        } else if a.starts_with("Film") {
             let vals: Vec<_> = a.split(" ").collect();
-            if vals[1].trim() ==  "\"rgb\"" {
+            if vals[1].trim() == "\"rgb\"" {
                 loop {
                     let (tag, strs) = parse(&mut reader)?;
                     dbg!(&tag, &strs);
                     if tag == "integer xresolution" {
                         img_shape.0 = strs[0].parse()?;
-                        dbg!("fdafdsa",img_shape);
+                        dbg!("fdafdsa", img_shape);
                     }
                     if tag == "integer yresolution" {
                         img_shape.1 = strs[0].parse()?;
@@ -125,8 +128,7 @@ fn parse_pbrt_file(file_path: &str) -> anyhow::Result<(Vec<TriangleMesh>, f32, [
                         break;
                     }
                 }
-            }
-            else {
+            } else {
                 todo!();
             }
         }
@@ -136,25 +138,56 @@ fn parse_pbrt_file(file_path: &str) -> anyhow::Result<(Vec<TriangleMesh>, f32, [
     Ok((trimesh3s, camera_fov, transform_world2ndc, img_shape))
 }
 
-fn main() -> anyhow::Result<()>{
+fn cast_ray(
+    ix: usize,
+    iy: usize,
+    img_shape: (usize, usize),
+    fov: f32,
+    transform: [f32; 16],
+    screen_height: f32,
+) -> anyhow::Result<([f32; 3], [f32; 3])> {
+    assert!(ix < img_shape.0 && iy < img_shape.1);
+    let focal_dis = screen_height / 2.0 / (fov / 2.0).to_radians().tan();
+    let screen_width = screen_height * img_shape.0 as f32 / img_shape.1 as f32;
+    let x = (ix as f32 + 0.5) / img_shape.0 as f32 * screen_width - screen_width / 2.0;
+    let y = (iy as f32 + 0.5) / img_shape.1 as f32 * screen_height - screen_height / 2.0;
+    let z = focal_dis;
+    let mut dir = [x, y, z];
+    let mut org = [0.0, 0.0, 0.0];
+
+    let inv_transform = try_inverse(&transform).unwrap();
+    dir = transform_vector(&inv_transform, &dir);
+    org = transform_homogeneous(&inv_transform, &org).unwrap();
+
+    Ok((org, dir))
+}
+
+fn main() -> anyhow::Result<()> {
     let pbrt_file_path = "examples/asset/cornell-box/scene-v4.pbrt";
-    let (trimeshs, camera_fov, transform, img_shape)
-        = parse_pbrt_file(pbrt_file_path)?;
+    let (trimeshs, camera_fov, transform, img_shape) = parse_pbrt_file(pbrt_file_path)?;
     {
-        let mut tri2vtx: Vec<usize> = vec!();
-        let mut vtx2xyz: Vec<f32> = vec!();
+        let mut tri2vtx: Vec<usize> = vec![];
+        let mut vtx2xyz: Vec<f32> = vec![];
         for trimesh in trimeshs.iter() {
             del_msh_core::uniform_mesh::merge(
-                &mut tri2vtx, &mut vtx2xyz,
-                &trimesh.tri2vtx, &trimesh.vtx2xyz, 3);
+                &mut tri2vtx,
+                &mut vtx2xyz,
+                &trimesh.tri2vtx,
+                &trimesh.vtx2xyz,
+                3,
+            );
         }
         del_msh_core::io_obj::save_tri2vtx_vtx2xyz(
-            "target/2_cornell_box.obj", &tri2vtx, &vtx2xyz, 3)?;
+            "target/2_cornell_box.obj",
+            &tri2vtx,
+            &vtx2xyz,
+            3,
+        )?;
     }
 
     for iw in 0..img_shape.0 {
         for ih in 0..img_shape.1 {
-            // let (ray_org, ray_dir) = compute_ray(iw, ih, img_shape, camera_fov, transform);
+            let (ray_org, ray_dir) = cast_ray(iw, ih, img_shape, camera_fov, transform, 1.0)?;
             // compute intersection below
         }
     }
