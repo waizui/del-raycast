@@ -1,13 +1,5 @@
 
 use std::io::{BufRead, Seek, SeekFrom};
-use del_msh_core::uniform_mesh::vtx2vtx;
-/*
-use del_geo_core::mat4_col_major::transform_homogeneous;
-use del_geo_core::mat4_col_major::transform_vector;
-use del_geo_core::mat4_col_major::try_inverse;
-*/
-use del_msh_core::vtx2xyz::transform;
-// use std::io::{BufRead, Seek, SeekFrom};
 
 struct TriangleMesh {
     vtx2uv: Vec<f32>,
@@ -88,15 +80,12 @@ fn parse_pbrt_file(
     while reader.read_line(&mut a)? > 0 {
         if a.starts_with("Camera") {
             let (tag, strs) = parse(&mut reader)?;
-            dbg!(&tag, &strs);
             assert_eq!(tag, "float fov");
             camera_fov = strs[0].parse()?;
         } else if a.starts_with("Transform") {
-            dbg!(&a);
             let a = a["Transform".len()..].to_string();
             let a = a.trim().to_string();
-            let mut vals: Vec<_> = a.split_whitespace().collect();
-            dbg!(&vals);
+            let vals: Vec<_> = a.split_whitespace().collect();
             assert_eq!(vals.len(), 18);
             assert_eq!(vals[0], "[");
             assert_eq!(vals[vals.len() - 1], "]");
@@ -121,10 +110,8 @@ fn parse_pbrt_file(
             if vals[1].trim() == "\"rgb\"" {
                 loop {
                     let (tag, strs) = parse(&mut reader)?;
-                    dbg!(&tag, &strs);
                     if tag == "integer xresolution" {
                         img_shape.0 = strs[0].parse()?;
-                        dbg!("fdafdsa", img_shape);
                     }
                     if tag == "integer yresolution" {
                         img_shape.1 = strs[0].parse()?;
@@ -170,7 +157,7 @@ fn cast_ray(
 
 fn main() -> anyhow::Result<()> {
     let pbrt_file_path = "examples/asset/cornell-box/scene-v4.pbrt";
-    let (trimeshs, camera_fov, transform, img_shape) = parse_pbrt_file(pbrt_file_path)?;
+    let (trimeshs, camera_fov, transform_cam_glbl2lcl, img_shape) = parse_pbrt_file(pbrt_file_path)?;
     {
         let mut tri2vtx: Vec<usize> = vec![];
         let mut vtx2xyz: Vec<f32> = vec![];
@@ -190,7 +177,7 @@ fn main() -> anyhow::Result<()> {
             3,
         )?;
     }
-    let transform_cam_lcl2glbl = del_geo_core::mat4_col_major::try_inverse(&transform).unwrap();
+    let transform_cam_lcl2glbl = del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
 
     let mut img = Vec::<image::Rgb<f32>>::new();
     img.resize(img_shape.0*img_shape.1, image::Rgb([0_f32;3]));
