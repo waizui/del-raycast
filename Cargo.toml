@@ -7,11 +7,17 @@ edition = "2021"
 nalgebra = "0.33.2"
 rand = "0.8.5"
 num-traits = "0.2.19"
-image = "0.25.4"
-anyhow = "1.0.92"
+image = "0.25.5"
+anyhow = "1.0.93"
 regex = "1.11.1"
+ply-rs = "0.1.3"
+
+# forked library
+# pbrt4 = { path = "../pbrt4" }
+pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }
 
 # del-* library
 del-geo-nalgebra = { path="../del-geo/del-geo-nalgebra" }
 del-msh-core = { path = "../del-msh/del-msh-core" }
 del-geo-core = { path = "../del-geo/del-geo-core" }
+

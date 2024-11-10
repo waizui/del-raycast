@@ -130,43 +130,23 @@ fn parse_pbrt_file(
     Ok((trimesh3s, camera_fov, transform_world2ndc, img_shape))
 }
 
-fn cast_ray(
-    ix: usize,
-    iy: usize,
-    img_shape: (usize, usize),
-    fov: f32,
-    transform_cam_lcl2glbl: [f32; 16]) -> ([f32; 3], [f32; 3])
-{
-    assert!(ix < img_shape.0 && iy < img_shape.1);
-    let focal_dis = 0.5 / (fov / 2.0).to_radians().tan();
-    let (screen_width, screen_height) = if img_shape.0 >  img_shape.1 {
-        (img_shape.0 as f32 / img_shape.1 as f32, 1f32)
-    } else{
-        (1f32, img_shape.1 as f32 / img_shape.0 as f32)
-    };
-    let x = ((ix as f32 + 0.5) / img_shape.0 as f32 - 0.5) * screen_width;
-    let y = (0.5 - (iy as f32 + 0.5) / img_shape.1 as f32) *screen_height;
-    let z = focal_dis;
-    let mut dir = [x, y, z];
-    let mut org = [0.0, 0.0, 0.0];
-    use del_geo_core::mat4_col_major;
-    dir = mat4_col_major::transform_vector(&transform_cam_lcl2glbl, &dir);
-    org = mat4_col_major::transform_homogeneous(&transform_cam_lcl2glbl, &org).unwrap();
-    (org, dir)
-}
-
 fn main() -> anyhow::Result<()> {
+    {
+        let scene = pbrt4::Scene::from_file("examples/asset/cornell-box/scene-v4.pbrt");
+    }
     let pbrt_file_path = "examples/asset/cornell-box/scene-v4.pbrt";
     let (trimeshs, camera_fov, transform_cam_glbl2lcl, img_shape) = parse_pbrt_file(pbrt_file_path)?;
+    dbg!(transform_cam_glbl2lcl);
     {
         let mut tri2vtx: Vec<usize> = vec![];
         let mut vtx2xyz: Vec<f32> = vec![];
         for trimesh in trimeshs.iter() {
+            let trimesh_vtx2xyz = del_msh_core::vtx2xyz::transform(&trimesh.vtx2xyz, &transform_cam_glbl2lcl);
             del_msh_core::uniform_mesh::merge(
                 &mut tri2vtx,
                 &mut vtx2xyz,
                 &trimesh.tri2vtx,
-                &trimesh.vtx2xyz,
+                &trimesh_vtx2xyz,
                 3,
             );
         }
@@ -184,7 +164,7 @@ fn main() -> anyhow::Result<()> {
     for iw in 0..img_shape.0 {
         for ih in 0..img_shape.1 {
             let (ray_org, ray_dir)
-                = cast_ray(iw, ih, img_shape, camera_fov, transform_cam_lcl2glbl);
+                = del_raycast::cam_pbrt::cast_ray(iw, ih, img_shape, camera_fov, transform_cam_lcl2glbl);
             // compute intersection below
             let mut t_min = f32::INFINITY;
             for trimesh in trimeshs.iter() {
