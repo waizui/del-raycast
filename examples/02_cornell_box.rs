@@ -1,147 +1,43 @@
-
 use std::io::{BufRead, Seek, SeekFrom};
 
 struct TriangleMesh {
-    vtx2uv: Vec<f32>,
-    vtx2nrm: Vec<f32>,
+    // vtx2uv: Vec<f32>,
+    // vtx2nrm: Vec<f32>,
     vtx2xyz: Vec<f32>,
     tri2vtx: Vec<usize>,
-}
-
-impl TriangleMesh {
-    fn new() -> Self {
-        TriangleMesh {
-            vtx2uv: vec![],
-            vtx2nrm: vec![],
-            vtx2xyz: vec![],
-            tri2vtx: vec![],
-        }
-    }
-    fn add(&mut self, tag: &String, vals: &Vec<String>) {
-        match tag.as_str() {
-            "point2 uv" => self.vtx2uv = vals.iter().map(|v| v.parse().unwrap()).collect(),
-            "normal N" => self.vtx2nrm = vals.iter().map(|v| v.parse().unwrap()).collect(),
-            "point3 P" => self.vtx2xyz = vals.iter().map(|v| v.parse().unwrap()).collect(),
-            "integer indices" => self.tri2vtx = vals.iter().map(|v| v.parse().unwrap()).collect(),
-            _ => panic!("{}", tag),
-        };
-    }
-}
-
-fn parse(reader: &mut std::io::BufReader<std::fs::File>) -> anyhow::Result<(String, Vec<String>)> {
-    let mut a: String = "".to_string();
-    let ipos = reader.seek(SeekFrom::Current(0)).unwrap();
-    let tag = {
-        reader.read_line(&mut a)?;
-        a = a.trim_start().to_string();
-        if a.is_empty() || a.chars().nth(0).unwrap() != '"' {
-            // if start with \"
-            reader.seek(SeekFrom::Start(ipos)).unwrap(); // re-wind
-            return Ok(("".to_string(), vec![]));
-        }
-        a = a.trim_end().to_string();
-        let re = regex::Regex::new(r##""([^"]*)""##).unwrap(); // extract double quoted word
-        let tags: Vec<String> = re
-            .captures_iter(&a)
-            .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
-            .collect();
-        if tags.is_empty() {
-            return Err(anyhow::Error::msg("hoge"));
-        }
-        tags[0].clone()
-    };
-    a = a[tag.len() + 2..].to_string();
-    a = a.trim_start().to_string();
-    assert!(a.starts_with("["));
-    loop {
-        if a.ends_with("]") {
-            break;
-        }
-        reader.read_line(&mut a)?;
-        a = a.trim_end().to_string();
-    }
-    let a: Vec<_> = a.split_whitespace().collect();
-    let a: Vec<_> = a[1..a.len() - 1].iter().map(|v| v.to_string()).collect();
-    Ok((tag, a))
 }
 
 fn parse_pbrt_file(
     file_path: &str,
 ) -> anyhow::Result<(Vec<TriangleMesh>, f32, [f32; 16], (usize, usize))> {
-    let path = std::path::Path::new(file_path);
-    let file = std::fs::File::open(&path)?;
-    use std::io::BufRead;
-    let mut reader = std::io::BufReader::new(file);
-    let mut a: String = "".to_string(); // buffer
-    let mut trimesh3s = Vec::<TriangleMesh>::new();
-    let mut camera_fov = f32::NAN;
-    let mut transform_world2ndc = [0f32; 16];
-    let mut img_shape = (usize::MAX, usize::MAX);
-    while reader.read_line(&mut a)? > 0 {
-        if a.starts_with("Camera") {
-            let (tag, strs) = parse(&mut reader)?;
-            assert_eq!(tag, "float fov");
-            camera_fov = strs[0].parse()?;
-        } else if a.starts_with("Transform") {
-            let a = a["Transform".len()..].to_string();
-            let a = a.trim().to_string();
-            let vals: Vec<_> = a.split_whitespace().collect();
-            assert_eq!(vals.len(), 18);
-            assert_eq!(vals[0], "[");
-            assert_eq!(vals[vals.len() - 1], "]");
-            transform_world2ndc = std::array::from_fn(|i| vals[i + 1].parse().unwrap());
-        } else if a.starts_with("Shape") {
-            let vals: Vec<_> = a.split(" ").collect();
-            if vals[1].trim() == "\"trianglemesh\"" {
-                let mut trimesh3 = TriangleMesh::new();
-                loop {
-                    let (tag, strs) = parse(&mut reader)?;
-                    if tag == "" {
-                        break;
-                    }
-                    trimesh3.add(&tag, &strs);
-                }
-                trimesh3s.push(trimesh3);
-            } else {
-                todo!();
-            }
-        } else if a.starts_with("Film") {
-            let vals: Vec<_> = a.split(" ").collect();
-            if vals[1].trim() == "\"rgb\"" {
-                loop {
-                    let (tag, strs) = parse(&mut reader)?;
-                    if tag == "integer xresolution" {
-                        img_shape.0 = strs[0].parse()?;
-                    }
-                    if tag == "integer yresolution" {
-                        img_shape.1 = strs[0].parse()?;
-                    }
-                    if tag == "" {
-                        break;
-                    }
-                }
-            } else {
-                todo!();
-            }
-        }
-        a.clear();
+    let scene = pbrt4::Scene::from_file(file_path)?;
+    let (camera_fov, transform_cam_glbl2lcl, img_shape) = del_raycast::parse_pbrt::hoge(&scene);
+    let mut shapes: Vec<TriangleMesh> = vec![];
+    for shape_entity in scene.shapes {
+        let (tri2vtx, vtx2xyz) =
+            del_raycast::parse_pbrt::trimesh3_from_shape_entity(&shape_entity, file_path).unwrap();
+        let ts = TriangleMesh { tri2vtx, vtx2xyz };
+        shapes.push(ts);
     }
-    dbg!(&img_shape);
-    Ok((trimesh3s, camera_fov, transform_world2ndc, img_shape))
+    for material in scene.materials {
+        match material {
+            pbrt4::types::Material {ty} => {dbg!(ty);},
+            _ => {}
+        }
+    }
+    Ok((shapes, camera_fov, transform_cam_glbl2lcl, img_shape))
 }
 
 fn main() -> anyhow::Result<()> {
-    {
-        let scene = pbrt4::Scene::from_file("examples/asset/cornell-box/scene-v4.pbrt");
-    }
     let pbrt_file_path = "examples/asset/cornell-box/scene-v4.pbrt";
-    let (trimeshs, camera_fov, transform_cam_glbl2lcl, img_shape) = parse_pbrt_file(pbrt_file_path)?;
-    dbg!(transform_cam_glbl2lcl);
+    let (trimeshs, camera_fov, transform_cam_glbl2lcl, img_shape) =
+        parse_pbrt_file(pbrt_file_path)?;
     {
         let mut tri2vtx: Vec<usize> = vec![];
         let mut vtx2xyz: Vec<f32> = vec![];
         for trimesh in trimeshs.iter() {
-            let trimesh_vtx2xyz = del_msh_core::vtx2xyz::transform(&trimesh.vtx2xyz, &transform_cam_glbl2lcl);
+            let trimesh_vtx2xyz =
+                del_msh_core::vtx2xyz::transform(&trimesh.vtx2xyz, &transform_cam_glbl2lcl);
             del_msh_core::uniform_mesh::merge(
                 &mut tri2vtx,
                 &mut vtx2xyz,
@@ -157,23 +53,39 @@ fn main() -> anyhow::Result<()> {
             3,
         )?;
     }
-    let transform_cam_lcl2glbl = del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
+    let transform_cam_lcl2glbl =
+        del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
 
     let mut img = Vec::<image::Rgb<f32>>::new();
-    img.resize(img_shape.0*img_shape.1, image::Rgb([0_f32;3]));
+    img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
     for iw in 0..img_shape.0 {
         for ih in 0..img_shape.1 {
-            let (ray_org, ray_dir)
-                = del_raycast::cam_pbrt::cast_ray(iw, ih, img_shape, camera_fov, transform_cam_lcl2glbl);
+            let (ray_org, ray_dir) = del_raycast::cam_pbrt::cast_ray(
+                iw,
+                ih,
+                img_shape,
+                camera_fov,
+                transform_cam_lcl2glbl,
+            );
             // compute intersection below
             let mut t_min = f32::INFINITY;
             for trimesh in trimeshs.iter() {
-                let Some((t, _i_tri)) = del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
-                    &ray_org, &ray_dir, &trimesh.tri2vtx, &trimesh.vtx2xyz) else { continue; };
-                if t < t_min { t_min = t; }
+                let Some((t, _i_tri)) =
+                    del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
+                        &ray_org,
+                        &ray_dir,
+                        &trimesh.tri2vtx,
+                        &trimesh.vtx2xyz,
+                    )
+                else {
+                    continue;
+                };
+                if t < t_min {
+                    t_min = t;
+                }
             }
             let v = t_min * 0.05;
-            img[ih*img_shape.0+iw] = image::Rgb([v;3]);
+            img[ih * img_shape.0 + iw] = image::Rgb([v; 3]);
             // dbg!(t_min);
         }
     }

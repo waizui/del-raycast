@@ -8,11 +8,14 @@ struct Ray {
 
 impl Ray {
     fn new(o: Vector, d: Vector) -> Self {
-        Self {o,d}
+        Self { o, d }
     }
 }
 
-enum ReflT { DIFF, SPEC}  // material types, used in radiance()
+enum ReflT {
+    DIFF,
+    SPEC,
+} // material types, used in radiance()
 
 struct Sphere {
     rad: Real,
@@ -58,7 +61,13 @@ impl Sphere {
 }
 
 fn clamp(x: f64) -> f64 {
-    if x < 0. { return 0.; } else if x > 1. { return 1.; } else { return x; }
+    if x < 0. {
+        return 0.;
+    } else if x > 1. {
+        return 1.;
+    } else {
+        return x;
+    }
 }
 
 // fn toInt(x: f64) -> i64 { return int(pow(clamp(x), 1. / 2.2) * 255 + 0.5); }
@@ -66,7 +75,7 @@ fn clamp(x: f64) -> f64 {
 fn intersect(r: &Ray, spheres: &[Sphere]) -> Option<(Real, usize)> {
     const INF: Real = 1e20;
     let mut t = INF;
-    let mut id= usize::MAX;
+    let mut id = usize::MAX;
     for (isphere, sphere) in spheres.iter().enumerate() {
         let d = sphere.intersect(r);
         if d > 0.0 && d < t {
@@ -80,69 +89,134 @@ fn intersect(r: &Ray, spheres: &[Sphere]) -> Option<(Real, usize)> {
     None
 }
 
-fn radiance(
-    r: &Ray,
-    depth: i64,
-    spheres: &[Sphere],
-    rng: &mut rand::rngs::ThreadRng) -> Vector
-{
+fn radiance(r: &Ray, depth: i64, spheres: &[Sphere], rng: &mut rand::rngs::ThreadRng) -> Vector {
     use rand::Rng;
     let res = intersect(r, spheres);
     if res.is_none() {
         return Vector::new(0., 0., 0.); // if miss, return black
     }
     let (t, id) = res.unwrap();
-    let obj = &spheres[id];        // the hit object
+    let obj = &spheres[id]; // the hit object
     let x = r.o + r.d * t;
     let n = (x - obj.p).normalize();
     let nl = if n.dot(&r.d) < 0. { n } else { n * -1. };
     let mut f = obj.c;
-    let depth = depth+1;
+    let depth = depth + 1;
     if depth > 5 {
-        let p = if f.x > f.y && f.x > f.z { f.x } else if f.y > f.z { f.y } else { f.z }; // max refl
+        let p = if f.x > f.y && f.x > f.z {
+            f.x
+        } else if f.y > f.z {
+            f.y
+        } else {
+            f.z
+        }; // max refl
         if rng.gen::<Real>() < p {
             f = f * (1. / p);
-        } else { return obj.e; }//R.R.
+        } else {
+            return obj.e;
+        } //R.R.
     }
     match obj.refl {
         ReflT::DIFF => {
             let d = del_raycast::sampling::hemisphere_cos_weighted(
-                &nl, &[rng.gen::<Real>(), rng.gen::<Real>()]);
+                &nl,
+                &[rng.gen::<Real>(), rng.gen::<Real>()],
+            );
             return obj.e + f.component_mul(&radiance(&Ray::new(x, d), depth, spheres, rng));
         }
-        ReflT::SPEC => {            // Ideal SPECULAR reflection
-            return obj.e + f.component_mul(&radiance(&Ray::new(x, r.d - n * 2. * n.dot(&r.d)), depth, spheres, rng));
+        ReflT::SPEC => {
+            // Ideal SPECULAR reflection
+            return obj.e
+                + f.component_mul(&radiance(
+                    &Ray::new(x, r.d - n * 2. * n.dot(&r.d)),
+                    depth,
+                    spheres,
+                    rng,
+                ));
         }
     }
 }
 
 fn main() {
-    use rand::Rng;
     use crate::ReflT::{DIFF, SPEC};
+    use rand::Rng;
     let spheres = [
-        Sphere::new(1e5, Vector::new(1e5 + 1., 40.8, 81.6), Vector::new(0.,0.,0.), Vector::new(0.75, 0.25, 0.25), DIFF),//Left
-        Sphere::new(1e5, Vector::new(-1e5 + 99., 40.8, 81.6), Vector::new(0.,0.,0.), Vector::new(0.25, 0.25, 0.75), DIFF),//Rght
-        Sphere::new(1e5, Vector::new(50., 40.8, 1e5), Vector::new(0.,0.,0.), Vector::new(0.75, 0.75, 0.75), DIFF),//Back
-        Sphere::new(1e5, Vector::new(50., 40.8, -1e5 + 170.), Vector::new(0.,0.,0.), Vector::new(0.,0.,0.), DIFF),//Frnt
-        Sphere::new(1e5, Vector::new(50., 1e5, 81.6), Vector::new(0.,0.,0.), Vector::new(0.75, 0.75, 0.75), DIFF),//Botm
-        Sphere::new(1e5, Vector::new(50., -1e5 + 81.6, 81.6), Vector::new(0.,0.,0.), Vector::new(0.75, 0.75, 0.75), DIFF),//Top
-        Sphere::new(16.5, Vector::new(27., 16.5, 47.), Vector::new(0.,0.,0.), Vector::new(1., 1., 1.) * 0.999, SPEC),//Mirr
-        Sphere::new(600., Vector::new(50., 681.6 - 0.27, 81.6), Vector::new(12., 12., 12.), Vector::new(0.,0.,0.), DIFF) //Lite
+        Sphere::new(
+            1e5,
+            Vector::new(1e5 + 1., 40.8, 81.6),
+            Vector::new(0., 0., 0.),
+            Vector::new(0.75, 0.25, 0.25),
+            DIFF,
+        ), //Left
+        Sphere::new(
+            1e5,
+            Vector::new(-1e5 + 99., 40.8, 81.6),
+            Vector::new(0., 0., 0.),
+            Vector::new(0.25, 0.25, 0.75),
+            DIFF,
+        ), //Rght
+        Sphere::new(
+            1e5,
+            Vector::new(50., 40.8, 1e5),
+            Vector::new(0., 0., 0.),
+            Vector::new(0.75, 0.75, 0.75),
+            DIFF,
+        ), //Back
+        Sphere::new(
+            1e5,
+            Vector::new(50., 40.8, -1e5 + 170.),
+            Vector::new(0., 0., 0.),
+            Vector::new(0., 0., 0.),
+            DIFF,
+        ), //Frnt
+        Sphere::new(
+            1e5,
+            Vector::new(50., 1e5, 81.6),
+            Vector::new(0., 0., 0.),
+            Vector::new(0.75, 0.75, 0.75),
+            DIFF,
+        ), //Botm
+        Sphere::new(
+            1e5,
+            Vector::new(50., -1e5 + 81.6, 81.6),
+            Vector::new(0., 0., 0.),
+            Vector::new(0.75, 0.75, 0.75),
+            DIFF,
+        ), //Top
+        Sphere::new(
+            16.5,
+            Vector::new(27., 16.5, 47.),
+            Vector::new(0., 0., 0.),
+            Vector::new(1., 1., 1.) * 0.999,
+            SPEC,
+        ), //Mirr
+        Sphere::new(
+            600.,
+            Vector::new(50., 681.6 - 0.27, 81.6),
+            Vector::new(12., 12., 12.),
+            Vector::new(0., 0., 0.),
+            DIFF,
+        ), //Lite
     ];
     let mut rng = rand::thread_rng();
     let samps = 5;
     let cam = del_raycast::cam3::Camera3::new(
-        1024, 768,
+        1024,
+        768,
         Vector::new(50., 52., 295.6),
-        Vector::new(0., -0.042612, -1.));
+        Vector::new(0., -0.042612, -1.),
+    );
     let mut img = Vec::<image::Rgb<f32>>::new();
-    img.resize(cam.w*cam.h, image::Rgb([0_f32;3]));
-    for y in 0..cam.h {                       // Loop over image rows
+    img.resize(cam.w * cam.h, image::Rgb([0_f32; 3]));
+    for y in 0..cam.h {
+        // Loop over image rows
         // dbg!(stderr, "\rRendering (%d spp) %5.2f%%", samps * 4, 100. * y / (h - 1));
         for x in 0..cam.w {
             let mut c = Vector::new(0., 0., 0.);
-            for sy in 0..2 {     // 2x2 subpixel rows
-                for sx in 0..2 {        // 2x2 subpixel cols
+            for sy in 0..2 {
+                // 2x2 subpixel rows
+                for sx in 0..2 {
+                    // 2x2 subpixel cols
                     for _s in 0..samps {
                         let dx = del_raycast::sampling::tent(rng.gen::<Real>());
                         let dy = del_raycast::sampling::tent(rng.gen::<Real>());
@@ -156,7 +230,7 @@ fn main() {
                 }
             }
             c *= 0.25 * (1. / samps as Real);
-            img[(cam.h-1-y)*cam.w+x] = image::Rgb([c.x as f32, c.y as f32, c.z as f32]);
+            img[(cam.h - 1 - y) * cam.w + x] = image::Rgb([c.x as f32, c.y as f32, c.z as f32]);
         }
     }
     {
