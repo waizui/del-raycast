@@ -18,13 +18,13 @@ pub fn hoge(scene: &pbrt4::Scene) -> (f32, [f32; 16], (usize, usize)) {
 pub fn trimesh3_from_shape_entity(
     shape_entity: &pbrt4::ShapeEntity,
     path_file: &str,
-) -> Option<(Vec<usize>, Vec<f32>)> {
+) -> Option<(usize, Vec<usize>, Vec<f32>, Vec<f32>)> {
     match &shape_entity.params {
         pbrt4::types::Shape::TriangleMesh {
-            positions, indices, ..
+            positions, indices,normals,  ..
         } => {
             let tri2vtx = indices.iter().map(|&v| v as usize).collect::<Vec<usize>>();
-            return Some((tri2vtx, positions.to_vec()));
+            return Some((shape_entity.index, tri2vtx, positions.to_vec(), normals.to_vec()));
         }
         pbrt4::types::Shape::PlyMesh { filename } => {
             let filename = filename.strip_suffix("\"").unwrap().to_string();
@@ -62,7 +62,8 @@ pub fn trimesh3_from_shape_entity(
                     }
                 }
             }
-            return Some((tri2vtx, vtx2xyz));
+            // TODO: parse normals for .ply
+            return Some((shape_entity.index, tri2vtx, vtx2xyz, vec![]));
         }
         _ => {
             panic!();

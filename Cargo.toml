@@ -13,8 +13,9 @@ regex = "1.11.1"
 ply-rs = "0.1.3"
 
 # forked library
-# pbrt4 = { path = "../pbrt4" }
-pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }
+pbrt4 = { path = "../pbrt4" }
+# pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }
+
 
 # del-* library
 del-geo-nalgebra = { path="../del-geo/del-geo-nalgebra" }
