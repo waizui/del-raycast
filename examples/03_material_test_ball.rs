@@ -57,7 +57,7 @@ fn main() -> anyhow::Result<()> {
             );
         }
         del_msh_core::io_obj::save_tri2vtx_vtx2xyz(
-            "target/3_material_test_ball.obj",
+            "target/03_material_test_ball.obj",
             &tri2vtx,
             &vtx2xyz,
             3,

@@ -1,5 +1,3 @@
-use std::io::{BufRead, Seek, SeekFrom};
-
 struct TriangleMesh {
     // vtx2uv: Vec<f32>,
     // vtx2nrm: Vec<f32>,
@@ -47,7 +45,7 @@ fn main() -> anyhow::Result<()> {
             );
         }
         del_msh_core::io_obj::save_tri2vtx_vtx2xyz(
-            "target/2_cornell_box.obj",
+            "target/02_cornell_box.obj",
             &tri2vtx,
             &vtx2xyz,
             3,
