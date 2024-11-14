@@ -18,13 +18,22 @@ pub fn hoge(scene: &pbrt4::Scene) -> (f32, [f32; 16], (usize, usize)) {
 pub fn trimesh3_from_shape_entity(
     shape_entity: &pbrt4::ShapeEntity,
     path_file: &str,
-) -> Option<(usize, Vec<usize>, Vec<f32>, Vec<f32>)> {
+) -> Option<(usize, Option<usize>, Vec<usize>, Vec<f32>, Vec<f32>)> {
     match &shape_entity.params {
         pbrt4::types::Shape::TriangleMesh {
-            positions, indices,normals,  ..
+            positions,
+            indices,
+            normals,
+            ..
         } => {
             let tri2vtx = indices.iter().map(|&v| v as usize).collect::<Vec<usize>>();
-            return Some((shape_entity.index, tri2vtx, positions.to_vec(), normals.to_vec()));
+            return Some((
+                shape_entity.material_index.unwrap(),
+                shape_entity.area_light_index,
+                tri2vtx,
+                positions.to_vec(),
+                normals.to_vec(),
+            ));
         }
         pbrt4::types::Shape::PlyMesh { filename } => {
             let filename = filename.strip_suffix("\"").unwrap().to_string();
@@ -63,11 +72,38 @@ pub fn trimesh3_from_shape_entity(
                 }
             }
             // TODO: parse normals for .ply
-            return Some((shape_entity.index, tri2vtx, vtx2xyz, vec![]));
+            return Some((
+                shape_entity.material_index.unwrap(),
+                shape_entity.area_light_index,
+                tri2vtx,
+                vtx2xyz,
+                vec![],
+            ));
         }
         _ => {
             panic!();
         }
     }
     None
+}
+
+pub fn spectrum_from_light_entity(area_light_entity: &pbrt4::types::AreaLight) -> Option<[f32; 3]> {
+    match area_light_entity {
+        pbrt4::types::AreaLight::Diffuse {
+            filename,
+            two_sided,
+            spectrum,
+            scale,
+        } => match spectrum.unwrap().to_owned() {
+            pbrt4::param::Spectrum::Rgb(rgb) => {
+                return Some(rgb);
+            }
+            _ => {
+                panic!();
+            }
+        },
+        _ => {
+            panic!();
+        }
+    }
 }
