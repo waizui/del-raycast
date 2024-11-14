@@ -17,7 +17,10 @@ impl PFM {
         if iw >= self.w || ih >= self.h {
             return None;
         }
-        let start = (ih * self.w + iw) * self.channels;
+        // top left is origin, slightly different from standard pfm definition
+        let start = ((self.h - ih - 1) * self.w + iw) * self.channels;
+        // uncomment this for bottom left origin
+        // let start = (ih  * self.w + iw) * self.channels;
         Some(&self.data[start..start + self.channels])
     }
 
