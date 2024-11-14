@@ -1,4 +1,4 @@
-use del_msh_core::bvh3::TriMeshWithBvh;
+use del_msh_core::search_bvh3::TriMeshWithBvh;
 use ply_rs::ply::PropertyAccess;
 
 struct Shape {
@@ -17,10 +17,10 @@ fn parse() -> anyhow::Result<(Vec<Shape>, f32, [f32; 16], (usize, usize))> {
     let (camera_fov, transform_cam_glbl2lcl, img_shape) = del_raycast::parse_pbrt::hoge(&scene);
     for shape_entity in scene.shapes {
         let transform = shape_entity.transform.to_cols_array();
-        let (tri2vtx, vtx2xyz, _, _) =
+        let (_, tri2vtx, vtx2xyz, _) =
             del_raycast::parse_pbrt::trimesh3_from_shape_entity(&shape_entity, path_file).unwrap();
         let bvhnodes = del_msh_core::bvhnodes_morton::from_triangle_mesh(&tri2vtx, &vtx2xyz, 3);
-        let bvhnode2aabb = del_msh_core::aabbs3::from_uniform_mesh_with_bvh(
+        let bvhnode2aabb = del_msh_core::bvhnode2aabb3::from_uniform_mesh_with_bvh(
             0,
             &bvhnodes,
             Some((&tri2vtx, 3)),
@@ -94,7 +94,7 @@ fn main() -> anyhow::Result<()> {
                         &trimesh.vtx2xyz,
                     )
                  */
-                del_msh_core::bvh3::search_first_intersection_ray(&ray_org, &ray_dir, &TriMeshWithBvh {
+                del_msh_core::search_bvh3::first_intersection_ray(&ray_org, &ray_dir, &TriMeshWithBvh {
                     tri2vtx: &trimesh.tri2vtx,
                     vtx2xyz: &trimesh.vtx2xyz,
                     bvhnodes: &trimesh.bvhnodes,
