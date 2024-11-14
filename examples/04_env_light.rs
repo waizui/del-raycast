@@ -115,19 +115,28 @@ impl PFM {
     }
 }
 
-fn sample_env_map(dir: Vec3, map: &PFM) -> Option<[f32; 3]> {
+fn octa_map(dir: Vec3) -> Vec2 {
+    // project to octahadron
     let n = dir.abs().x + dir.abs().y + dir.abs().z;
     let oct = Vec2::new(dir.x / n, dir.y / n);
 
-    let dir2 = if dir.z < 0.0 {
-        let x = (1.0 - oct.y.abs()) * oct.x.signum();
-        let y = (1.0 - oct.x.abs()) * oct.y.signum();
+    if dir.z < 0. {
+        let x = (1. - oct.y.abs()) * oct.x.signum();
+        let y = (1. - oct.x.abs()) * oct.y.signum();
         Vec2::new(x, y)
     } else {
         oct
-    };
+    }
+}
 
-    map.rgb_uv(dir2.x, dir2.y)
+fn sample_env_map(dir: Vec3, map: &PFM) -> Option<[f32; 3]> {
+    // TODO: testing
+    let mut dir = octa_map(dir);
+    // map to texture coordinate , top left
+    dir.x = dir.x * 0.5 - 0.5;
+    dir.y = dir.y * 0.5 + 0.5;
+
+    map.rgb_uv(dir.x, dir.y)
 }
 
 fn main() -> anyhow::Result<()> {
