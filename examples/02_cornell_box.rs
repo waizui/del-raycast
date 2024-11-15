@@ -139,10 +139,10 @@ fn trace_ray(
             let mut Lo = [0.0, 0.0, 0.0];
             let mut target_mesh: &TriangleMesh = &trimeshes[0];
             let mut hit_pos = [0.0, 0.0, 0.0];
-            let mut hit_idx = [0, 0, 0];
+            let mut hit_idx_tri = 0;
             for trimesh in trimeshes {
                 // dbg!(&trimesh.vtx2xyz);
-                let Some((t, pos, idx)) =
+                let Some((t, i_tri)) =
                     del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
                         &ray_org,
                         &ray_dir,
@@ -152,16 +152,17 @@ fn trace_ray(
                 else {
                     continue;
                 };
+                let pos = del_geo_core::vec3::axpy(t, &ray_dir, &ray_org);
                 if t < t_min {
                     t_min = t;
                     hit_pos = pos;
-                    hit_idx = idx;
+                    hit_idx_tri = i_tri;
                     target_mesh = trimesh;
                 }
             }
             // Ray Tracing
             let wo = nalgebra::Vector3::new(-ray_dir[0], -ray_dir[1], -ray_dir[2]);
-            Lo = shade(wo, &hit_pos, &hit_idx, target_mesh, &light_msh, trimeshes);
+            Lo = shade(wo, &hit_pos, hit_idx_tri, target_mesh, &light_msh, trimeshes);
 
             // store Lo to img
             img[ih * img_shape.0 + iw] = image::Rgb(Lo);
@@ -173,43 +174,46 @@ fn trace_ray(
 fn shade(
     wo: nalgebra::Vector3<f32>,
     hit_pos: &[f32; 3],
-    hit_idx: &[usize; 3],
+    hit_tri_idx: usize,
     target_msh: &TriangleMesh,
     light_sources: &TriangleMesh,
     meshes: &[TriangleMesh],
 ) -> [f32; 3] {
     // normal at triangle vertices
+    let i0 = target_msh.tri2vtx[hit_tri_idx*3];
     let p0 = nalgebra::Vector3::new(
-        target_msh.normal[hit_idx[0] * 3],
-        target_msh.normal[hit_idx[0] * 3 + 1],
-        target_msh.normal[hit_idx[0] * 3 + 2],
+        target_msh.normal[i0 * 3],
+        target_msh.normal[i0 * 3 + 1],
+        target_msh.normal[i0 * 3 + 2],
     );
+    let i1 = target_msh.tri2vtx[hit_tri_idx*3+1];
     let p1 = nalgebra::Vector3::new(
-        target_msh.normal[hit_idx[1] * 3],
-        target_msh.normal[hit_idx[1] * 3 + 1],
-        target_msh.normal[hit_idx[1] * 3 + 2],
+        target_msh.normal[i1 * 3],
+        target_msh.normal[i1 * 3 + 1],
+        target_msh.normal[i1 * 3 + 2],
     );
+    let i2 = target_msh.tri2vtx[hit_tri_idx*3+2];
     let p2 = nalgebra::Vector3::new(
-        target_msh.normal[hit_idx[2] * 3],
-        target_msh.normal[hit_idx[2] * 3 + 1],
-        target_msh.normal[hit_idx[2] * 3 + 2],
+        target_msh.normal[i2 * 3],
+        target_msh.normal[i2 * 3 + 1],
+        target_msh.normal[i2 * 3 + 2],
     );
 
     // coord at triangle vertices
     let v0 = [
-        target_msh.vtx2xyz[hit_idx[0] * 3],
-        target_msh.vtx2xyz[hit_idx[0] * 3 + 1],
-        target_msh.vtx2xyz[hit_idx[0] * 3 + 2],
+        target_msh.vtx2xyz[i0 * 3],
+        target_msh.vtx2xyz[i0 * 3 + 1],
+        target_msh.vtx2xyz[i0 * 3 + 2],
     ];
     let v1 = [
-        target_msh.vtx2xyz[hit_idx[1] * 3],
-        target_msh.vtx2xyz[hit_idx[1] * 3 + 1],
-        target_msh.vtx2xyz[hit_idx[1] * 3 + 2],
+        target_msh.vtx2xyz[i1 * 3],
+        target_msh.vtx2xyz[i1 * 3 + 1],
+        target_msh.vtx2xyz[i1 * 3 + 2],
     ];
     let v2 = [
-        target_msh.vtx2xyz[hit_idx[2] * 3],
-        target_msh.vtx2xyz[hit_idx[2] * 3 + 1],
-        target_msh.vtx2xyz[hit_idx[2] * 3 + 2],
+        target_msh.vtx2xyz[i2 * 3],
+        target_msh.vtx2xyz[i2 * 3 + 1],
+        target_msh.vtx2xyz[i2 * 3 + 2],
     ];
 
     // normal at hit_pos
@@ -294,7 +298,7 @@ fn is_blocked(
 ) -> bool {
     let mut t_min = t_lightsrc;
     for trimesh in trimeshs {
-        let Some((t, _, _)) = del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
+        let Some((t, _i_tri)) = del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
             ray_org,
             ray_dir,
             &trimesh.tri2vtx,
@@ -354,7 +358,7 @@ fn main() -> anyhow::Result<()> {
             let mut t_min = f32::INFINITY;
             let mut color_buf = [0.0, 0.0, 0.0];
             for trimesh in trimeshs.iter() {
-                let Some((t, _, _)) =
+                let Some((t, i_tri)) =
                     del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
                         &ray_org,
                         &ray_dir,
