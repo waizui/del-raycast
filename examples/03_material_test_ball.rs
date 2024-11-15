@@ -17,7 +17,7 @@ fn parse() -> anyhow::Result<(Vec<Shape>, f32, [f32; 16], (usize, usize))> {
     let (camera_fov, transform_cam_glbl2lcl, img_shape) = del_raycast::parse_pbrt::hoge(&scene);
     for shape_entity in scene.shapes {
         let transform = shape_entity.transform.to_cols_array();
-        let (_, tri2vtx, vtx2xyz, _) =
+        let (_, _, tri2vtx, vtx2xyz, _) =
             del_raycast::parse_pbrt::trimesh3_from_shape_entity(&shape_entity, path_file).unwrap();
         let bvhnodes = del_msh_core::bvhnodes_morton::from_triangle_mesh(&tri2vtx, &vtx2xyz, 3);
         let bvhnode2aabb = del_msh_core::bvhnode2aabb3::from_uniform_mesh_with_bvh(

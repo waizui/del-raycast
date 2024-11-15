@@ -1,4 +1,3 @@
-use nalgebra::coordinates::X;
 use rand::Rng;
 
 #[derive(Debug, PartialEq)]
@@ -115,85 +114,31 @@ fn parse_pbrt_file(
     ))
 }
 
-/// For Cornell Box, we assume that no emittance from cube.
-fn trace_ray(
-    trimeshes: &[TriangleMesh],
-    light_msh: &TriangleMesh,
-    camera_fov: f32,
-    transform_cam_glbl2lcl: [f32; 16],
-    img_shape: (usize, usize),
-) -> Vec<image::Rgb<f32>> {
-    let mut img = Vec::<image::Rgb<f32>>::new();
-    img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
-    for iw in 0..img_shape.0 {
-        for ih in 0..img_shape.1 {
-            let (ray_org, ray_dir) = del_raycast::cam_pbrt::cast_ray(
-                iw,
-                ih,
-                img_shape,
-                camera_fov,
-                transform_cam_glbl2lcl,
-            );
-            // compute intersection below
-            let mut t_min = f32::INFINITY;
-            let mut Lo = [0.0, 0.0, 0.0];
-            let mut target_mesh: &TriangleMesh = &trimeshes[0];
-            let mut hit_pos = [0.0, 0.0, 0.0];
-            let mut hit_idx_tri = 0;
-            for trimesh in trimeshes {
-                // dbg!(&trimesh.vtx2xyz);
-                let Some((t, i_tri)) =
-                    del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
-                        &ray_org,
-                        &ray_dir,
-                        &trimesh.tri2vtx,
-                        &trimesh.vtx2xyz,
-                    )
-                else {
-                    continue;
-                };
-                let pos = del_geo_core::vec3::axpy(t, &ray_dir, &ray_org);
-                if t < t_min {
-                    t_min = t;
-                    hit_pos = pos;
-                    hit_idx_tri = i_tri;
-                    target_mesh = trimesh;
-                }
-            }
-            // Ray Tracing
-            let wo = nalgebra::Vector3::new(-ray_dir[0], -ray_dir[1], -ray_dir[2]);
-            Lo = shade(wo, &hit_pos, hit_idx_tri, target_mesh, &light_msh, trimeshes);
-
-            // store Lo to img
-            img[ih * img_shape.0 + iw] = image::Rgb(Lo);
-        }
-    }
-    img
-}
-
 fn shade(
     wo: nalgebra::Vector3<f32>,
     hit_pos: &[f32; 3],
-    hit_tri_idx: usize,
-    target_msh: &TriangleMesh,
+    hit_trimesh_tri_idx: (usize, usize),
     light_sources: &TriangleMesh,
     meshes: &[TriangleMesh],
 ) -> [f32; 3] {
+    let hit_trimesh_idx = hit_trimesh_tri_idx.0;
+    let hit_tri_idx = hit_trimesh_tri_idx.1;
+    let target_msh = &meshes[hit_trimesh_idx];
     // normal at triangle vertices
     let i0 = target_msh.tri2vtx[hit_tri_idx*3];
-    let p0 = nalgebra::Vector3::new(
+    let n0 = nalgebra::Vector3::new(
         target_msh.normal[i0 * 3],
         target_msh.normal[i0 * 3 + 1],
         target_msh.normal[i0 * 3 + 2],
     );
     let i1 = target_msh.tri2vtx[hit_tri_idx*3+1];
-    let p1 = nalgebra::Vector3::new(
+    let n1 = nalgebra::Vector3::new(
         target_msh.normal[i1 * 3],
         target_msh.normal[i1 * 3 + 1],
         target_msh.normal[i1 * 3 + 2],
     );
     let i2 = target_msh.tri2vtx[hit_tri_idx*3+2];
-    let p2 = nalgebra::Vector3::new(
+    let n2 = nalgebra::Vector3::new(
         target_msh.normal[i2 * 3],
         target_msh.normal[i2 * 3 + 1],
         target_msh.normal[i2 * 3 + 2],
@@ -217,7 +162,7 @@ fn shade(
     ];
 
     // normal at hit_pos
-    let n = interpolate(&p0, &p1, &p2, &v0, &v1, &v2, hit_pos);
+    let n = interpolate(&n0, &n1, &n2, &v0, &v1, &v2, hit_pos);
 
     let mut L_o = [0.0, 0.0, 0.0];
 
@@ -341,65 +286,137 @@ fn main() -> anyhow::Result<()> {
     let transform_cam_lcl2glbl =
         del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
 
-    let mut img = Vec::<image::Rgb<f32>>::new();
-    img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
-    let mut img1 = Vec::<image::Rgb<f32>>::new();
-    img1.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
-    for iw in 0..img_shape.0 {
-        for ih in 0..img_shape.1 {
-            let (ray_org, ray_dir) = del_raycast::cam_pbrt::cast_ray(
-                iw,
-                ih,
-                img_shape,
-                camera_fov,
-                transform_cam_lcl2glbl,
-            );
-            // compute intersection below
-            let mut t_min = f32::INFINITY;
-            let mut color_buf = [0.0, 0.0, 0.0];
-            for trimesh in trimeshs.iter() {
-                let Some((t, i_tri)) =
-                    del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
-                        &ray_org,
-                        &ray_dir,
-                        &trimesh.tri2vtx,
-                        &trimesh.vtx2xyz,
-                    )
-                else {
-                    continue;
-                };
-                if t < t_min {
-                    t_min = t;
-                    color_buf = trimesh.reflectance;
-                }
-            }
-            let v = t_min * 0.05;
-            img[ih * img_shape.0 + iw] = image::Rgb([v; 3]);
-            img1[ih * img_shape.0 + iw] = image::Rgb(color_buf);
-            // dbg!(t_min);
-        }
-    }
-
-    let img2 = trace_ray(
-        &trimeshs,
-        &trimeshs[7],
-        camera_fov,
-        transform_cam_lcl2glbl,
-        img_shape,
-    );
-
     {
+        let mut img = Vec::<image::Rgb<f32>>::new();
+        img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
+        for iw in 0..img_shape.0 {
+            for ih in 0..img_shape.1 {
+                let (ray_org, ray_dir) = del_raycast::cam_pbrt::cast_ray(
+                    iw,
+                    ih,
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                // compute intersection below
+                let mut t_min = f32::INFINITY;
+                let mut color_buf = [0.0, 0.0, 0.0];
+                for trimesh in trimeshs.iter() {
+                    let Some((t, i_tri)) =
+                        del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
+                            &ray_org,
+                            &ray_dir,
+                            &trimesh.tri2vtx,
+                            &trimesh.vtx2xyz,
+                        )
+                        else {
+                            continue;
+                        };
+                    if t < t_min {
+                        t_min = t;
+                        color_buf = trimesh.reflectance;
+                    }
+                }
+                let v = t_min * 0.05;
+                img[ih * img_shape.0 + iw] = image::Rgb([v; 3]);
+            }
+        }
         use image::codecs::hdr::HdrEncoder;
-        let file = std::fs::File::create("target/02_cornell_box.hdr").unwrap();
+        let file = std::fs::File::create("target/02_cornell_box_depth.hdr").unwrap();
         let enc = HdrEncoder::new(file);
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
+    }
+    { // color
+        let mut img1 = Vec::<image::Rgb<f32>>::new();
+        img1.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
+        for iw in 0..img_shape.0 {
+            for ih in 0..img_shape.1 {
+                let (ray_org, ray_dir) = del_raycast::cam_pbrt::cast_ray(
+                    iw,
+                    ih,
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                // compute intersection below
+                let mut t_min = f32::INFINITY;
+                let mut color_buf = [0.0, 0.0, 0.0];
+                for trimesh in trimeshs.iter() {
+                    let Some((t, _i_tri)) =
+                        del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
+                            &ray_org,
+                            &ray_dir,
+                            &trimesh.tri2vtx,
+                            &trimesh.vtx2xyz,
+                        )
+                        else {
+                            continue;
+                        };
+                    if t < t_min {
+                        t_min = t;
+                        color_buf = trimesh.reflectance;
+                    }
+                }
+                let v = t_min * 0.05;
+                img1[ih * img_shape.0 + iw] = image::Rgb(color_buf);
+                // dbg!(t_min);
+            }
+        }
         let file1 = std::fs::File::create("target/02_cornell_box_color.hdr").unwrap();
+        use image::codecs::hdr::HdrEncoder;
         let enc = HdrEncoder::new(file1);
         let _ = enc.encode(&img1, img_shape.0, img_shape.1);
+    }
 
+    { // path tracing
+        let mut img = Vec::<image::Rgb<f32>>::new();
+        img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
+        for iw in 0..img_shape.0 {
+            for ih in 0..img_shape.1 {
+                let (ray_org, ray_dir) = del_raycast::cam_pbrt::cast_ray(
+                    iw,
+                    ih,
+                    img_shape,
+                    camera_fov,
+                    transform_cam_glbl2lcl,
+                );
+                // compute intersection below
+                let mut t_min = f32::INFINITY;
+                let mut Lo = [0.0, 0.0, 0.0];
+                let mut hit_pos = [0.0, 0.0, 0.0];
+                let mut hit_trimesh_tri_idx = Option::<(usize, usize)>::None;
+                for (i_trimesh, trimesh) in trimeshs.iter().enumerate() {
+                    // dbg!(&trimesh.vtx2xyz);
+                    let Some((t, i_tri)) =
+                        del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
+                            &ray_org,
+                            &ray_dir,
+                            &trimesh.tri2vtx,
+                            &trimesh.vtx2xyz,
+                        )
+                        else {
+                            continue;
+                        };
+                    let pos = del_geo_core::vec3::axpy(t, &ray_dir, &ray_org);
+                    if t < t_min {
+                        t_min = t;
+                        hit_pos = pos;
+                        hit_trimesh_tri_idx = Some((i_trimesh, i_tri));
+                    }
+                }
+                let Some(hit_trimesh_tri_idx) = hit_trimesh_tri_idx else {continue};
+                // Ray Tracing
+                let wo = nalgebra::Vector3::new(-ray_dir[0], -ray_dir[1], -ray_dir[2]);
+                Lo = shade(wo, &hit_pos, hit_trimesh_tri_idx, &trimeshs[7], &trimeshs);
+
+                // store Lo to img
+                img[ih * img_shape.0 + iw] = image::Rgb(Lo);
+            }
+        }
         let file2 = std::fs::File::create("target/02_cornell_box_trace.hdr").unwrap();
+        use image::codecs::hdr::HdrEncoder;
         let enc = HdrEncoder::new(file2);
-        let _ = enc.encode(&img2, img_shape.0, img_shape.1);
+        let _ = enc.encode(&img, img_shape.0, img_shape.1);
     }
     Ok(())
 }
