@@ -38,7 +38,7 @@ pub fn trimesh3_from_shape_entity(
         pbrt4::types::Shape::PlyMesh { filename } => {
             let filename = filename.strip_suffix("\"").unwrap().to_string();
             let filename = filename.strip_prefix("\"").unwrap().to_string();
-            let mut path = std::path::Path::new(path_file);
+            let path = std::path::Path::new(path_file);
             let path = path.parent().unwrap();
             let path = path.to_str().unwrap().to_string() + "/" + &filename;
             let mut f = std::fs::File::open(path).unwrap();
@@ -50,7 +50,7 @@ pub fn trimesh3_from_shape_entity(
                 if str == "vertex" {
                     vtx2xyz.resize(vals.len() * 3, 0f32);
                     for (i_vtx, val) in vals.iter().enumerate() {
-                        vtx2xyz[i_vtx * 3 + 0] = val.get_float(&"x".to_string()).unwrap();
+                        vtx2xyz[i_vtx * 3] = val.get_float(&"x".to_string()).unwrap();
                         vtx2xyz[i_vtx * 3 + 1] = val.get_float(&"y".to_string()).unwrap();
                         vtx2xyz[i_vtx * 3 + 2] = val.get_float(&"z".to_string()).unwrap();
                         /*
@@ -90,20 +90,15 @@ pub fn trimesh3_from_shape_entity(
 pub fn spectrum_from_light_entity(area_light_entity: &pbrt4::types::AreaLight) -> Option<[f32; 3]> {
     match area_light_entity {
         pbrt4::types::AreaLight::Diffuse {
-            filename,
-            two_sided,
+            filename: _filename,
+            two_sided: _two_sided,
             spectrum,
-            scale,
+            scale: _scale,
         } => match spectrum.unwrap().to_owned() {
-            pbrt4::param::Spectrum::Rgb(rgb) => {
-                return Some(rgb);
-            }
+            pbrt4::param::Spectrum::Rgb(rgb) => Some(rgb),
             _ => {
                 panic!();
             }
         },
-        _ => {
-            panic!();
-        }
     }
 }

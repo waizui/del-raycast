@@ -1,149 +1,71 @@
-use core::str;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
-
-use anyhow::anyhow;
-
-type Real = f32;
-type Vec3 = nalgebra::Vector3<Real>;
-type Vec2 = nalgebra::Vector2<Real>;
-
-/// PFM texture
-pub struct PFM {
-    pub data: Vec<f32>,
-    pub w: usize,
-    pub h: usize,
-    pub channels: usize,
-    pub little_endian: bool,
-}
-
-impl PFM {
-    pub fn read_from(path: &str) -> anyhow::Result<PFM> {
-        let file = File::open(path)?;
-        let mut reader = BufReader::new(file);
-
-        let mut header = String::new();
-        reader.read_line(&mut header)?;
-        let header = header.trim();
-
-        let channels = match header {
-            "PF" => 3, // color image
-            "Pf" => 1, // grayscale image
-            _ => return Err(anyhow!("Invalid header of PFM")),
-        };
-
-        let mut dimensions = String::new();
-        reader.read_line(&mut dimensions)?;
-        let dims: Vec<&str> = dimensions.trim().split_whitespace().collect();
-
-        if dims.len() != 2 {
-            return Err(anyhow!("Invalid dimensions format"));
-        }
-
-        let w: usize = dims[0]
-            .parse()
-            .map_err(|_| anyhow!("Invalid width: {}", dims[0]))?;
-        let h: usize = dims[1]
-            .parse()
-            .map_err(|_| anyhow!("Invalid height: {}", dims[1]))?;
-
-        // scale factor, little endian if scale is negative
-        let mut scale_line = String::new();
-        reader.read_line(&mut scale_line)?;
-        let scale: f32 = scale_line
-            .trim()
-            .parse()
-            .map_err(|_| anyhow!("Invalid scale factor: {}", scale_line.trim()))?;
-
-        let little_endian = scale < 0.0;
-
-        // binary data
-        let data_size = w * h * channels;
-        let mut buffer = vec![0u8; data_size * 4]; // 4 bytes per f32
-        reader.read_exact(&mut buffer)?;
-
-        // convert bytes to f32 values
-        let mut data = Vec::with_capacity(data_size);
-        for chunk in buffer.chunks_exact(4) {
-            let bytes = [chunk[0], chunk[1], chunk[2], chunk[3]];
-            let value = if little_endian {
-                f32::from_le_bytes(bytes)
-            } else {
-                f32::from_be_bytes(bytes)
-            };
-            data.push(value);
-        }
-
-        Ok(PFM {
-            data,
-            w,
-            h,
-            channels,
-            little_endian: true,
-        })
-    }
-
-    pub fn pixel(&self, iw: usize, ih: usize) -> Option<&[f32]> {
-        if iw >= self.w || ih >= self.h {
-            return None;
-        }
-        // top left is origin, slightly different from standard pfm definition
-        let start = ((self.h - ih - 1) * self.w + iw) * self.channels;
-        // uncomment this for bottom left origin
-        // let start = (ih  * self.w + iw) * self.channels;
-        Some(&self.data[start..start + self.channels])
-    }
-
-    pub fn rgb(&self, iw: usize, ih: usize) -> Option<[f32; 3]> {
-        if self.channels != 3 {
-            return None;
-        }
-        self.pixel(iw, ih).map(|p| [p[0], p[1], p[2]])
-    }
-
-    pub fn rgb_uv(&self, mut u: f32, mut v: f32) -> Option<[f32; 3]> {
-        if self.channels != 3 {
-            return None;
-        }
-        u = u.clamp(0., 1.);
-        v = v.clamp(0., 1.);
-
-        let iw = (self.w as f32 * u - 0.5) as usize;
-        let ih = (self.h as f32 * v - 0.5) as usize;
-
-        self.pixel(iw, ih).map(|p| [p[0], p[1], p[2]])
-    }
-}
-
-fn octa_map(dir: Vec3) -> Vec2 {
-    // project to octahadron
-    let n = dir.abs().x + dir.abs().y + dir.abs().z;
-    let oct = Vec2::new(dir.x / n, dir.y / n);
-
-    if dir.z < 0. {
-        let x = (1. - oct.y.abs()) * oct.x.signum();
-        let y = (1. - oct.x.abs()) * oct.y.signum();
-        Vec2::new(x, y)
+fn unit2_from_uvec3_octahedra(dir: &[f32; 3]) -> [f32; 2] {
+    let n = dir[0].abs() + dir[1].abs() + dir[2].abs();
+    let oct = [dir[0] / n, dir[1] / n];
+    let oct = if dir[2] < 0. {
+        [
+            (1. - oct[1].abs()) * oct[0].signum(),
+            (1. - oct[0].abs()) * oct[1].signum(),
+        ]
     } else {
         oct
-    }
+    };
+    [oct[0] * 0.5 + 0.5, oct[1] * 0.5 + 0.5]
 }
 
-fn sample_env_map(dir: Vec3, map: &PFM) -> Option<[f32; 3]> {
-    // TODO: testing
-    let mut dir = octa_map(dir);
-    // map to texture coordinate , top left
-    dir.x = dir.x * 0.5 - 0.5;
-    dir.y = dir.y * 0.5 + 0.5;
-
-    map.rgb_uv(dir.x, dir.y)
+/// https://github.com/mmp/pbrt-v4/blob/1ae72cfa7344e79a7815a21ed3da746cdccee59b/src/pbrt/util/math.cpp#L317
+fn unit2_from_uvec3_equal_area(d: &[f32; 3]) -> [f32; 2] {
+    let x = d[0].abs();
+    let y = d[1].abs();
+    let z = d[2].abs();
+    let r = (1. - z).sqrt();
+    let phi = y.atan2(x);
+    let phi = phi * std::f32::consts::FRAC_2_PI;
+    let v = phi * r;
+    let u = r - v;
+    let (u, v) = if d[2] < 0. { (1. - v, 1. - u) } else { (u, v) };
+    let u = u.copysign(d[0]);
+    let v = v.copysign(-d[1]);
+    [u * 0.5 + 0.5, v * 0.5 + 0.5]
 }
 
 fn main() -> anyhow::Result<()> {
-    let pfm = PFM::read_from("examples/asset/material-testball/textures/envmap.pfm")?;
+    let (tex_shape, tex_data) = {
+        let pfm = del_raycast::io_pfm::PFM::read_from(
+            "examples/asset/material-testball/textures/envmap.pfm",
+        )?;
+        ((pfm.w, pfm.h), pfm.data)
+    };
+    {
+        use image::Pixel;
+        let img: Vec<image::Rgb<f32>> = tex_data
+            .chunks(3)
+            .map(|rgb| *image::Rgb::<f32>::from_slice(rgb))
+            .collect();
+        use image::codecs::hdr::HdrEncoder;
+        let file = std::fs::File::create("target/04_env_light_pfm.hdr").unwrap();
+        let enc = HdrEncoder::new(file);
+        let _ = enc.encode(&img, tex_shape.0, tex_shape.1);
+    }
+    // --------------------
     let camera_fov = 20.0;
-    let transform_cam_lcl2glbl = del_geo_core::mat4_col_major::from_translate(&[0., 0., -5.]);
-    let img_shape = (pfm.w, pfm.h);
+    // let transform_cam_lcl2glbl = del_geo_core::mat4_col_major::from_translate(&[0., 0., -5.]);
+    let transform_cam_glbl2lcl: [f32; 16] = [
+        0.721367, -0.373123, -0.583445, -0., -0., 0.842456, -0.538765, -0., -0.692553, -0.388647,
+        -0.60772, -0., 0.0258668, -0.29189, 5.43024, 1.,
+    ];
+    let transform_cam_lcl2glbl =
+        del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
+    let transform_env = [
+        -0.386527, 0., 0.922278, 0., -0.922278, 0., -0.386527, 0., 0., 1., 0., 0., 0., 0., 0., 1.,
+    ];
+    let transform_env: [f32; 16] = {
+        let m = nalgebra::Matrix4::<f32>::from_column_slice(&transform_env);
+        let m = m.try_inverse().unwrap();
+        // let transform_env = del_geo_core::mat4_col_major::try_inverse(&transform_env).unwrap();
+        m.as_slice().try_into().unwrap()
+    };
+    // dbg!(transform_cam_lcl2glbl);
+    let img_shape = (640, 360);
     let mut img = Vec::<image::Rgb<f32>>::new();
     img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
     for ih in 0..img_shape.1 {
@@ -155,10 +77,48 @@ fn main() -> anyhow::Result<()> {
                 camera_fov,
                 transform_cam_lcl2glbl,
             );
-            // dbg!(ray_org, ray_dir);
-            // img[ih * img_shape.0 + iw] = image::Rgb([0f32; 3]);
-            img[ih * img_shape.0 + iw] = image::Rgb(pfm.rgb(iw, ih).unwrap());
-            // dbg!(v);
+            let sphere_cntr = [0.15, 0.50, 0.16];
+            let t = del_geo_nalgebra::sphere::intersection_ray(
+                &nalgebra::Vector3::<f32>::from(sphere_cntr),
+                0.7,
+                &nalgebra::Vector3::<f32>::from(ray_org),
+                &nalgebra::Vector3::<f32>::from(ray_dir),
+            );
+            if let Some(t) = t {
+                use del_geo_core::vec3;
+                let pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
+                let nrm = vec3::sub(&pos, &sphere_cntr);
+                let hit_nrm = vec3::normalized(&nrm);
+                let refl = vec3::mirror_reflection(&ray_dir, &hit_nrm);
+                let refl = vec3::normalized(&refl);
+                let env =
+                    del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &refl)
+                        .unwrap();
+                // let tex_coord = unit2_from_uvec3_equal_area(&[-env[0], -env[1], -env[2]]);
+                let tex_coord = unit2_from_uvec3_equal_area(&env);
+                let i_u = (tex_coord[0] * tex_shape.0 as f32).floor() as usize;
+                let i_v = (tex_coord[1] * tex_shape.1 as f32).floor() as usize;
+                let i_u = i_u.clamp(0, tex_shape.0 - 1);
+                let i_v = i_v.clamp(0, tex_shape.1 - 1);
+                let i_tex = i_v * tex_shape.0 + i_u;
+                img[ih * img_shape.0 + iw].0[0] = tex_data[i_tex * 3 + 0];
+                img[ih * img_shape.0 + iw].0[1] = tex_data[i_tex * 3 + 1];
+                img[ih * img_shape.0 + iw].0[2] = tex_data[i_tex * 3 + 2];
+            } else {
+                let nrm = del_geo_core::vec3::normalized(&ray_dir);
+                let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
+                    .unwrap();
+                // let tex_coord = unit2_from_uvec3_octahedra(&[-env[0], env[1], -env[2]]);
+                let tex_coord = unit2_from_uvec3_equal_area(&env);
+                let i_u = (tex_coord[0] * tex_shape.0 as f32).floor() as usize;
+                let i_v = (tex_coord[1] * tex_shape.1 as f32).floor() as usize;
+                let i_u = i_u.clamp(0, tex_shape.0 - 1);
+                let i_v = i_v.clamp(0, tex_shape.1 - 1);
+                let i_tex = i_v * tex_shape.0 + i_u;
+                img[ih * img_shape.0 + iw].0[0] = tex_data[i_tex * 3 + 0];
+                img[ih * img_shape.0 + iw].0[1] = tex_data[i_tex * 3 + 1];
+                img[ih * img_shape.0 + iw].0[2] = tex_data[i_tex * 3 + 2];
+            }
         }
     }
     {

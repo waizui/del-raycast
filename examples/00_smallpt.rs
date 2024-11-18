@@ -40,66 +40,47 @@ impl Sphere {
         }
     }
 
-    fn intersect(&self, r: &Ray) -> Real {
-        // returns distance, 0 if nohit
-        const EPS: Real = 1e-4;
-        let op: Vector = self.p - r.o; // Solve t^2*d.d + 2*t*(o-p).d + (o-p).(o-p)-R^2 = 0
-        let b = op.dot(&r.d);
-        let det: Real = b * b - op.dot(&op) + self.rad * self.rad;
-        if det < 0.0 {
-            return 0.0;
-        } else {
-            let det = det.sqrt();
-            if b - det > EPS {
-                return b - det;
-            } else if b + det > EPS {
-                return b + det;
-            }
-            return 0.;
-        }
+    fn intersect(&self, r: &Ray) -> Option<Real> {
+        let Some(t) = del_geo_nalgebra::sphere::intersection_ray(&self.p, self.rad, &r.o, &r.d)
+        else {
+            return None;
+        };
+        Some(t)
     }
 }
-
-fn clamp(x: f64) -> f64 {
-    if x < 0. {
-        return 0.;
-    } else if x > 1. {
-        return 1.;
-    } else {
-        return x;
-    }
-}
-
-// fn toInt(x: f64) -> i64 { return int(pow(clamp(x), 1. / 2.2) * 255 + 0.5); }
 
 fn intersect(r: &Ray, spheres: &[Sphere]) -> Option<(Real, usize)> {
     const INF: Real = 1e20;
-    let mut t = INF;
+    let mut t_min = INF;
     let mut id = usize::MAX;
     for (isphere, sphere) in spheres.iter().enumerate() {
-        let d = sphere.intersect(r);
-        if d > 0.0 && d < t {
-            t = d;
+        let Some(t) = sphere.intersect(r) else {
+            continue;
+        };
+        if t < t_min {
+            t_min = t;
             id = isphere;
         }
     }
-    if t < INF {
-        return Some((t, id));
+    if t_min < INF {
+        return Some((t_min, id));
     }
     None
 }
 
 fn radiance(r: &Ray, depth: i64, spheres: &[Sphere], rng: &mut rand::rngs::ThreadRng) -> Vector {
     use rand::Rng;
-    let res = intersect(r, spheres);
-    if res.is_none() {
-        return Vector::new(0., 0., 0.); // if miss, return black
-    }
-    let (t, id) = res.unwrap();
+    let Some((t, id)) = intersect(r, spheres) else {
+        return Vector::new(0., 0., 0.); // if ray miss, return black
+    };
     let obj = &spheres[id]; // the hit object
-    let x = r.o + r.d * t;
-    let n = (x - obj.p).normalize();
-    let nl = if n.dot(&r.d) < 0. { n } else { n * -1. };
+    let hit_pos = r.o + r.d * t; // hit pos
+    let hit_nrm = (hit_pos - obj.p).normalize();
+    let hit_nrm = if hit_nrm.dot(&r.d) < 0. {
+        hit_nrm
+    } else {
+        hit_nrm * -1.
+    };
     let mut f = obj.c;
     let depth = depth + 1;
     if depth > 5 {
@@ -116,25 +97,21 @@ fn radiance(r: &Ray, depth: i64, spheres: &[Sphere], rng: &mut rand::rngs::Threa
             return obj.e;
         } //R.R.
     }
-    match obj.refl {
-        ReflT::DIFF => {
-            let d = del_raycast::sampling::hemisphere_cos_weighted(
-                &nl,
-                &[rng.gen::<Real>(), rng.gen::<Real>()],
-            );
-            return obj.e + f.component_mul(&radiance(&Ray::new(x, d), depth, spheres, rng));
-        }
-        ReflT::SPEC => {
-            // Ideal SPECULAR reflection
-            return obj.e
-                + f.component_mul(&radiance(
-                    &Ray::new(x, r.d - n * 2. * n.dot(&r.d)),
-                    depth,
-                    spheres,
-                    rng,
-                ));
-        }
-    }
+    let hit_pos_offset = hit_pos + hit_nrm.scale(1.0e-3);
+    let next_dir = match obj.refl {
+        ReflT::DIFF => del_raycast::sampling::hemisphere_cos_weighted(
+            &hit_nrm,
+            &[rng.gen::<Real>(), rng.gen::<Real>()],
+        ),
+        ReflT::SPEC => r.d - hit_nrm * 2. * hit_nrm.dot(&r.d),
+    };
+    obj.e
+        + f.component_mul(&radiance(
+            &Ray::new(hit_pos_offset, next_dir),
+            depth,
+            spheres,
+            rng,
+        ))
 }
 
 fn main() {
@@ -210,7 +187,6 @@ fn main() {
     img.resize(cam.w * cam.h, image::Rgb([0_f32; 3]));
     for y in 0..cam.h {
         // Loop over image rows
-        // dbg!(stderr, "\rRendering (%d spp) %5.2f%%", samps * 4, 100. * y / (h - 1));
         for x in 0..cam.w {
             let mut c = Vector::new(0., 0., 0.);
             for sy in 0..2 {
