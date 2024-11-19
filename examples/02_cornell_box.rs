@@ -1,3 +1,4 @@
+use del_geo_core::vec3::axpy;
 use rand::Rng;
 
 #[derive(Debug, PartialEq, Clone, Default)]
@@ -240,11 +241,11 @@ fn is_blocked(
         ) else {
             continue;
         };
-        if t < t_min {
+        if t < t_min && t > 1e-6 {
             t_min = t;
         }
     }
-    (t_min - t_lightsrc).abs() < 1e-6
+    (t_min - t_lightsrc).abs() > 1e-6
 }
 
 fn intersection_ray_trimeshs(
@@ -369,7 +370,135 @@ fn main() -> anyhow::Result<()> {
         let enc = HdrEncoder::new(file1);
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
     }
-
+    // Importance sampling on rectangle area light and tracing
+    {
+        use rand::Rng;
+        use rand::SeedableRng;
+        let mut rng = rand_chacha::ChaChaRng::seed_from_u64(0u64);
+        // Get the area light source
+        let mut light_buf: Option<&TriangleMesh> = None;
+        for trimesh in &trimeshs {
+            if !trimesh.spectrum.is_none() {
+                light_buf = Some(trimesh);
+                break;
+            }
+        }
+        match light_buf {
+            None => {
+                return Err(anyhow::anyhow!("No light source found"));
+            }
+            Some(_light) => {}
+        }
+        let light = light_buf.unwrap();
+        let area_sum_buf =
+            del_msh_core::sampling::cumulative_area_sum(&light.tri2vtx, &light.vtx2xyz, 3);
+        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
+        for iw in 0..img_shape.0 {
+            for ih in 0..img_shape.1 {
+                let (ray_org, ray_dir) = del_raycast::cam_pbrt::cast_ray(
+                    iw,
+                    ih,
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                let Some((_t, i_trimsh, _i_tri)) =
+                    intersection_ray_trimeshs(&ray_org, &ray_dir, &trimeshs)
+                else {
+                    continue;
+                };
+                if trimeshs[i_trimsh].spectrum.is_some() {
+                    img[ih * img_shape.0 + iw] = image::Rgb(trimeshs[i_trimsh].spectrum.unwrap().0);
+                    continue;
+                }
+                let int_cnt = 32;
+                let mut L_o = [0., 0., 0.];
+                for i in 0..int_cnt {
+                    let (i_tri, r1, r2) = del_msh_core::sampling::sample_uniformly_trimesh(
+                        &area_sum_buf,
+                        rng.gen::<f32>(),
+                        rng.gen::<f32>(),
+                    );
+                    let a = [
+                        light.vtx2xyz[light.tri2vtx[i_tri * 3] * 3],
+                        light.vtx2xyz[light.tri2vtx[i_tri * 3] * 3 + 1],
+                        light.vtx2xyz[light.tri2vtx[i_tri * 3] * 3 + 2],
+                    ];
+                    let b = [
+                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 1] * 3],
+                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 1] * 3 + 1],
+                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 1] * 3 + 2],
+                    ];
+                    let c = [
+                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 2] * 3],
+                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 2] * 3 + 1],
+                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 2] * 3 + 2],
+                    ];
+                    let sampling_light_point = axpy(
+                        1.0 - r1.sqrt(),
+                        &a,
+                        &axpy(
+                            r1.sqrt() * (1.0 - r2),
+                            &b,
+                            &axpy(r2 * r1.sqrt(), &c, &[0., 0., 0.]),
+                        ),
+                    );
+                    let hit_pos = axpy(_t, &ray_dir, &ray_org);
+                    let mut n_hit =
+                        nalgebra::Vector3::from(trimeshs[i_trimsh].normal_at(&hit_pos, _i_tri));
+                    n_hit = if n_hit.dot(&nalgebra::Vector3::from(ray_dir)) > 0. {
+                        -n_hit
+                    } else {
+                        n_hit
+                    };
+                    let ref_dir = nalgebra::Vector3::from(sampling_light_point)
+                        - nalgebra::Vector3::from(hit_pos);
+                    let mut n_light =
+                        nalgebra::Vector3::from(light.normal_at(&sampling_light_point, i_tri));
+                        /* 
+                    n_light = if n_light.dot(&ref_dir) > 0. {
+                        -n_light
+                    } else {
+                        n_light
+                    };
+                    */
+                    let cos_theta = n_hit.dot(&ref_dir.normalize());
+                    let cos_theta_light = n_light.dot(&-ref_dir.normalize());
+                    if is_blocked(&hit_pos, &ref_dir.into(), &trimeshs, 1.0) && cos_theta_light > 1e-6
+                    {
+                        continue;
+                    } else {
+                        let L_i = light.spectrum.unwrap().0;
+                        let area = del_geo_core::tri3::area(&a, &b, &c);
+                        let pdf = 1.0 / area;
+                        let r2 = ref_dir.norm_squared();
+                        let reflectance = trimeshs[i_trimsh].reflectance;
+                        L_o[0] += L_i[0] * cos_theta * cos_theta_light * reflectance[0]
+                            / r2
+                            / pdf
+                            / int_cnt as f32;
+                        L_o[1] += L_i[1] * cos_theta * cos_theta_light * reflectance[1]
+                            / r2
+                            / pdf
+                            / int_cnt as f32;
+                        L_o[2] += L_i[2] * cos_theta * cos_theta_light * reflectance[2]
+                            / r2
+                            / pdf
+                            / int_cnt as f32;
+                    }
+                }
+                img[ih * img_shape.0 + iw] = image::Rgb([
+                    L_o[0].min(1.0).max(0.0),
+                    L_o[1].min(1.0).max(0.0),
+                    L_o[2].min(1.0).max(0.0),
+                ]);
+            }
+        }
+        let file1 = std::fs::File::create("target/02_cornell_box_light_sampling.hdr").unwrap();
+        use image::codecs::hdr::HdrEncoder;
+        let enc = HdrEncoder::new(file1);
+        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+    }
     {
         // path tracing
         use rand::Rng;
