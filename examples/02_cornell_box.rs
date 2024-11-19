@@ -1,10 +1,8 @@
-use del_geo_core::vec3::axpy;
+use itertools::Itertools;
 use rand::Rng;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 struct TriangleMesh {
-    // vtx2uv: Vec<f32>,
-    // vtx2nrm: Vec<f32>,
     vtx2xyz: Vec<f32>,
     tri2vtx: Vec<usize>,
     vtx2nrm: Vec<f32>,
@@ -21,7 +19,7 @@ impl TriangleMesh {
         let p0 = arrayref::array_ref![self.vtx2xyz, iv0 * 3, 3];
         let p1 = arrayref::array_ref![self.vtx2xyz, iv1 * 3, 3];
         let p2 = arrayref::array_ref![self.vtx2xyz, iv2 * 3, 3];
-        let bc = del_geo_core::tri3::barycentric_coords(p0, p1, p2, pos);
+        let bc = del_geo_core::tri3::to_barycentric_coords(p0, p1, p2, pos);
         let n0 = arrayref::array_ref![self.vtx2nrm, iv0 * 3, 3];
         let n1 = arrayref::array_ref![self.vtx2nrm, iv1 * 3, 3];
         let n2 = arrayref::array_ref![self.vtx2nrm, iv2 * 3, 3];
@@ -31,30 +29,6 @@ impl TriangleMesh {
             bc[0] * n0[2] + bc[1] * n1[2] + bc[2] * n2[2],
         ];
         del_geo_core::vec3::normalized(&n)
-    }
-
-    fn raw_mesh(_vtx2xyz: Vec<f32>, _tri2vtx: Vec<usize>) -> Self {
-        Self {
-            vtx2xyz: _vtx2xyz,
-            tri2vtx: _tri2vtx,
-            vtx2nrm: vec![],
-            reflectance: [0.0, 0.0, 0.0],
-            spectrum: None,
-        }
-    }
-    fn new(
-        _vtx2xyz: Vec<f32>,
-        _tri2vtx: Vec<usize>,
-        _normal: Vec<f32>,
-        _reflectance: [f32; 3],
-    ) -> Self {
-        Self {
-            vtx2xyz: _vtx2xyz,
-            tri2vtx: _tri2vtx,
-            vtx2nrm: _normal,
-            reflectance: _reflectance,
-            spectrum: None,
-        }
     }
 }
 
@@ -106,146 +80,6 @@ fn parse_pbrt_file(
         shapes[i_shape].reflectance = materials[material_idx];
     }
     Ok((shapes, camera_fov, transform_cam_glbl2lcl, img_shape))
-}
-
-fn shade(
-    wo: nalgebra::Vector3<f32>,
-    hit_pos: &[f32; 3],
-    hit_trimesh_tri_idx: (usize, usize),
-    light_sources: &TriangleMesh,
-    meshes: &[TriangleMesh],
-) -> [f32; 3] {
-    let hit_trimesh_idx = hit_trimesh_tri_idx.0;
-    let hit_tri_idx = hit_trimesh_tri_idx.1;
-    let target_msh = &meshes[hit_trimesh_idx];
-    // normal at triangle vertices
-    let i0 = target_msh.tri2vtx[hit_tri_idx * 3];
-    let n0 = nalgebra::Vector3::new(
-        target_msh.vtx2nrm[i0 * 3],
-        target_msh.vtx2nrm[i0 * 3 + 1],
-        target_msh.vtx2nrm[i0 * 3 + 2],
-    );
-    let i1 = target_msh.tri2vtx[hit_tri_idx * 3 + 1];
-    let n1 = nalgebra::Vector3::new(
-        target_msh.vtx2nrm[i1 * 3],
-        target_msh.vtx2nrm[i1 * 3 + 1],
-        target_msh.vtx2nrm[i1 * 3 + 2],
-    );
-    let i2 = target_msh.tri2vtx[hit_tri_idx * 3 + 2];
-    let n2 = nalgebra::Vector3::new(
-        target_msh.vtx2nrm[i2 * 3],
-        target_msh.vtx2nrm[i2 * 3 + 1],
-        target_msh.vtx2nrm[i2 * 3 + 2],
-    );
-
-    // coord at triangle vertices
-    let v0 = [
-        target_msh.vtx2xyz[i0 * 3],
-        target_msh.vtx2xyz[i0 * 3 + 1],
-        target_msh.vtx2xyz[i0 * 3 + 2],
-    ];
-    let v1 = [
-        target_msh.vtx2xyz[i1 * 3],
-        target_msh.vtx2xyz[i1 * 3 + 1],
-        target_msh.vtx2xyz[i1 * 3 + 2],
-    ];
-    let v2 = [
-        target_msh.vtx2xyz[i2 * 3],
-        target_msh.vtx2xyz[i2 * 3 + 1],
-        target_msh.vtx2xyz[i2 * 3 + 2],
-    ];
-
-    // normal at hit_pos
-    let n = interpolate(&n0, &n1, &n2, &v0, &v1, &v2, hit_pos);
-
-    let mut L_o = [0.0, 0.0, 0.0];
-
-    // direct lighting from light sources, importance sampling on rectangle area light.
-    let mut L_dir = [0.0, 0.0, 0.0];
-    let mut sampled_des = nalgebra::Vector3::new(0.0, 0.0, 0.0);
-    // Hacking sampling method for rectangle area light. Uniform sampling for meshes will be implemented in the future.
-    let mut rng = rand::thread_rng();
-    let x_min = -0.24;
-    let x_max = 0.23;
-    let z_min = -0.22;
-    let z_max = 0.16;
-    let x = rng.gen_range(x_min..x_max);
-    let z = rng.gen_range(z_min..z_max);
-    sampled_des = nalgebra::Vector3::new(x, 1.98, z);
-
-    let ref_ray_org = hit_pos;
-    let ref_ray_dir = sampled_des - nalgebra::Vector3::new(hit_pos[0], hit_pos[1], hit_pos[2]);
-    let t_lightsrc = 1.0;
-    if !is_blocked(
-        ref_ray_org,
-        &ref_ray_dir.clone().into(),
-        &meshes,
-        t_lightsrc,
-    ) {
-        let L_i = [17.0, 12.0, 4.0];
-        let cos_theta = n.dot(&ref_ray_dir.into()).max(0.0);
-        let A = (x_max - x_min) * (z_max - z_min);
-        let pdf = 1.0 / A;
-        L_dir = [
-            L_i[0] * cos_theta / (t_lightsrc * t_lightsrc) * pdf,
-            L_i[1] * cos_theta / (t_lightsrc * t_lightsrc) * pdf,
-            L_i[2] * cos_theta / (t_lightsrc * t_lightsrc) * pdf,
-        ];
-    }
-    L_o = [L_o[0] + L_dir[0], L_o[1] + L_dir[1], L_o[2] + L_dir[2]];
-
-    L_o
-}
-
-fn interpolate<T>(
-    p0: &T,
-    p1: &T,
-    p2: &T,
-    v0: &[f32; 3],
-    v1: &[f32; 3],
-    v2: &[f32; 3],
-    target: &[f32; 3],
-) -> T
-where
-    T: Clone + std::ops::Add<Output = T> + std::ops::Mul<f32, Output = T>,
-{
-    let v0v1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
-    let v0v2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
-    let v0target = [target[0] - v0[0], target[1] - v0[1], target[2] - v0[2]];
-
-    let dot01 = v0v1[0] * v0target[0] + v0v1[1] * v0target[1] + v0v1[2] * v0target[2];
-    let dot02 = v0v2[0] * v0target[0] + v0v2[1] * v0target[1] + v0v2[2] * v0target[2];
-    let dot12 = v0v1[0] * v0v2[0] + v0v1[1] * v0v2[1] + v0v1[2] * v0v2[2];
-
-    let inv_denom = 1.0 / (dot12 * dot12 - dot01 * dot02);
-    let u = (dot12 * dot02 - dot01 * dot12) * inv_denom;
-    let v = (dot01 * dot12 - dot02 * dot01) * inv_denom;
-    let w = 1.0 - u - v;
-
-    p0.clone() * u + p1.clone() * v + p2.clone() * w
-}
-
-fn is_blocked(
-    ray_org: &[f32; 3],
-    ray_dir: &[f32; 3],
-    trimeshs: &[TriangleMesh],
-    t_lightsrc: f32,
-) -> bool {
-    let mut t_min = t_lightsrc;
-    for trimesh in trimeshs {
-        let Some((t, _i_tri)) = del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
-            ray_org,
-            ray_dir,
-            &trimesh.tri2vtx,
-            &trimesh.vtx2xyz,
-        ) else {
-            continue;
-        };
-        if t < t_min && t > 1e-6 {
-            t_min = t;
-        }
-    }
-    (t_min - t_lightsrc).abs() > 1e-6
 }
 
 fn intersection_ray_trimeshs(
@@ -308,6 +142,7 @@ fn main() -> anyhow::Result<()> {
         del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
 
     {
+        // computing depth image
         let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         for iw in 0..img_shape.0 {
             for ih in 0..img_shape.1 {
@@ -322,7 +157,7 @@ fn main() -> anyhow::Result<()> {
                 let mut t_min = f32::INFINITY;
                 let mut color_buf = [0.0, 0.0, 0.0];
                 for trimesh in trimeshs.iter() {
-                    let Some((t, i_tri)) =
+                    let Some((t, _i_tri)) =
                         del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
                             &ray_org,
                             &ray_dir,
@@ -347,6 +182,7 @@ fn main() -> anyhow::Result<()> {
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
     }
     {
+        // computing reflectance image
         let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         for iw in 0..img_shape.0 {
             for ih in 0..img_shape.1 {
@@ -372,26 +208,23 @@ fn main() -> anyhow::Result<()> {
     }
     // Importance sampling on rectangle area light and tracing
     {
+        use del_geo_core::vec3;
         use rand::Rng;
         use rand::SeedableRng;
         let mut rng = rand_chacha::ChaChaRng::seed_from_u64(0u64);
         // Get the area light source
-        let mut light_buf: Option<&TriangleMesh> = None;
-        for trimesh in &trimeshs {
-            if !trimesh.spectrum.is_none() {
-                light_buf = Some(trimesh);
-                break;
-            }
-        }
-        match light_buf {
-            None => {
-                return Err(anyhow::anyhow!("No light source found"));
-            }
-            Some(_light) => {}
-        }
-        let light = light_buf.unwrap();
-        let area_sum_buf =
-            del_msh_core::sampling::cumulative_area_sum(&light.tri2vtx, &light.vtx2xyz, 3);
+        let i_trimesh_light = trimeshs
+            .iter()
+            .enumerate()
+            .find_or_first(|(_i_trimesh, trimsh)| trimsh.spectrum.is_some())
+            .unwrap()
+            .0;
+        let area_sum_buf = del_msh_core::sampling::cumulative_area_sum(
+            &trimeshs[i_trimesh_light].tri2vtx,
+            &trimeshs[i_trimesh_light].vtx2xyz,
+            3,
+        );
+        let &area_light = area_sum_buf.last().unwrap();
         let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         for iw in 0..img_shape.0 {
             for ih in 0..img_shape.1 {
@@ -402,96 +235,70 @@ fn main() -> anyhow::Result<()> {
                     camera_fov,
                     transform_cam_lcl2glbl,
                 );
-                let Some((_t, i_trimsh, _i_tri)) =
+                let Some((ray_t, i_trimsh_hit, i_tri_hit)) =
                     intersection_ray_trimeshs(&ray_org, &ray_dir, &trimeshs)
                 else {
                     continue;
                 };
-                if trimeshs[i_trimsh].spectrum.is_some() {
-                    img[ih * img_shape.0 + iw] = image::Rgb(trimeshs[i_trimsh].spectrum.unwrap().0);
+                if trimeshs[i_trimsh_hit].spectrum.is_some() {
+                    img[ih * img_shape.0 + iw] =
+                        image::Rgb(trimeshs[i_trimsh_hit].spectrum.unwrap().0);
                     continue;
                 }
-                let int_cnt = 32;
-                let mut L_o = [0., 0., 0.];
-                for i in 0..int_cnt {
-                    let (i_tri, r1, r2) = del_msh_core::sampling::sample_uniformly_trimesh(
+                let num_sample = 4;
+                let mut l_o = [0., 0., 0.];
+                for _i_sample in 0..num_sample {
+                    let (i_tri_light, r1, r2) = del_msh_core::sampling::sample_uniformly_trimesh(
                         &area_sum_buf,
                         rng.gen::<f32>(),
                         rng.gen::<f32>(),
                     );
-                    let a = [
-                        light.vtx2xyz[light.tri2vtx[i_tri * 3] * 3],
-                        light.vtx2xyz[light.tri2vtx[i_tri * 3] * 3 + 1],
-                        light.vtx2xyz[light.tri2vtx[i_tri * 3] * 3 + 2],
-                    ];
-                    let b = [
-                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 1] * 3],
-                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 1] * 3 + 1],
-                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 1] * 3 + 2],
-                    ];
-                    let c = [
-                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 2] * 3],
-                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 2] * 3 + 1],
-                        light.vtx2xyz[light.tri2vtx[i_tri * 3 + 2] * 3 + 2],
-                    ];
-                    let sampling_light_point = axpy(
-                        1.0 - r1.sqrt(),
-                        &a,
-                        &axpy(
-                            r1.sqrt() * (1.0 - r2),
-                            &b,
-                            &axpy(r2 * r1.sqrt(), &c, &[0., 0., 0.]),
-                        ),
+                    let (p0, p1, p2) = del_msh_core::trimesh3::to_corner_points(
+                        &trimeshs[i_trimesh_light].tri2vtx,
+                        &trimeshs[i_trimesh_light].vtx2xyz,
+                        i_tri_light,
                     );
-                    let hit_pos = axpy(_t, &ray_dir, &ray_org);
-                    let mut n_hit =
-                        nalgebra::Vector3::from(trimeshs[i_trimsh].normal_at(&hit_pos, _i_tri));
-                    n_hit = if n_hit.dot(&nalgebra::Vector3::from(ray_dir)) > 0. {
-                        -n_hit
+                    let light_pos = del_geo_core::tri3::position_from_barycentric_coords(
+                        &p0,
+                        &p1,
+                        &p2,
+                        &[1. - r1 - r2, r1, r2],
+                    );
+                    let light_nrm = trimeshs[i_trimesh_light].normal_at(&light_pos, i_tri_light);
+                    let light_pos = vec3::axpy(1.0e-3, &light_nrm, &light_pos);
+                    let hit_pos = vec3::axpy(ray_t, &ray_dir, &ray_org);
+                    let hit_nrm = trimeshs[i_trimsh_hit].normal_at(&hit_pos, i_tri_hit);
+                    let hit_nrm = if vec3::dot(&hit_nrm, &ray_dir) > 0. {
+                        [-hit_nrm[0], -hit_nrm[1], -hit_nrm[2]]
                     } else {
-                        n_hit
+                        hit_nrm
                     };
-                    let ref_dir = nalgebra::Vector3::from(sampling_light_point)
-                        - nalgebra::Vector3::from(hit_pos);
-                    let mut n_light =
-                        nalgebra::Vector3::from(light.normal_at(&sampling_light_point, i_tri));
-                        /* 
-                    n_light = if n_light.dot(&ref_dir) > 0. {
-                        -n_light
-                    } else {
-                        n_light
-                    };
-                    */
-                    let cos_theta = n_hit.dot(&ref_dir.normalize());
-                    let cos_theta_light = n_light.dot(&-ref_dir.normalize());
-                    if is_blocked(&hit_pos, &ref_dir.into(), &trimeshs, 1.0) && cos_theta_light > 1e-6
-                    {
+                    let hit_pos = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
+                    //
+                    let uvec_from_hit_to_light = vec3::normalized(&vec3::sub(&light_pos, &hit_pos));
+                    let cos_theta_hit = vec3::dot(&hit_nrm, &uvec_from_hit_to_light);
+                    let cos_theta_light = -vec3::dot(&light_nrm, &uvec_from_hit_to_light);
+                    if cos_theta_light < 0. {
                         continue;
-                    } else {
-                        let L_i = light.spectrum.unwrap().0;
-                        let area = del_geo_core::tri3::area(&a, &b, &c);
-                        let pdf = 1.0 / area;
-                        let r2 = ref_dir.norm_squared();
-                        let reflectance = trimeshs[i_trimsh].reflectance;
-                        L_o[0] += L_i[0] * cos_theta * cos_theta_light * reflectance[0]
-                            / r2
-                            / pdf
-                            / int_cnt as f32;
-                        L_o[1] += L_i[1] * cos_theta * cos_theta_light * reflectance[1]
-                            / r2
-                            / pdf
-                            / int_cnt as f32;
-                        L_o[2] += L_i[2] * cos_theta * cos_theta_light * reflectance[2]
-                            / r2
-                            / pdf
-                            / int_cnt as f32;
+                    } // backside of light
+                    if let Some((_t, i_trimsh, _i_tri)) =
+                        intersection_ray_trimeshs(&hit_pos, &uvec_from_hit_to_light, &trimeshs) {
+                        if i_trimsh != i_trimesh_light {
+                            continue;
+                        }
                     }
+                    else {
+                        continue;
+                    };
+                    let l_i = trimeshs[i_trimesh_light].spectrum.unwrap().0;
+                    let pdf = 1.0 / area_light;
+                    let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
+                    let reflectance = trimeshs[i_trimsh_hit].reflectance;
+                    let li_r = vec3::element_wise_mult(&l_i, &reflectance);
+                    let tmp = cos_theta_hit * cos_theta_light / (r2 * pdf * num_sample as f32);
+                    l_o = vec3::axpy(tmp, &li_r, &l_o);
                 }
-                img[ih * img_shape.0 + iw] = image::Rgb([
-                    L_o[0].min(1.0).max(0.0),
-                    L_o[1].min(1.0).max(0.0),
-                    L_o[2].min(1.0).max(0.0),
-                ]);
+                img[ih * img_shape.0 + iw] = image::Rgb(l_o);
             }
         }
         let file1 = std::fs::File::create("target/02_cornell_box_light_sampling.hdr").unwrap();
@@ -560,42 +367,6 @@ fn main() -> anyhow::Result<()> {
                     spectrum2[1] * trimeshs[i_trimsh1].reflectance[1];
                 img[ih * img_shape.0 + iw].0[2] +=
                     spectrum2[2] * trimeshs[i_trimsh1].reflectance[2];
-                /*
-                                // compute intersection below
-                                let mut t_min = f32::INFINITY;
-                                let mut Lo = [0.0, 0.0, 0.0];
-                                let mut hit_pos = [0.0, 0.0, 0.0];
-                                let mut hit_trimesh_tri_idx = Option::<(usize, usize)>::None;
-                                for (i_trimesh, trimesh) in trimeshs.iter().enumerate() {
-                                    let Some((t, i_tri)) =
-                                        del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
-                                            &ray_org,
-                                            &ray_dir,
-                                            &trimesh.tri2vtx,
-                                            &trimesh.vtx2xyz,
-                                        )
-                                    else {
-                                        continue;
-                                    };
-
-                                    if t < t_min {
-                                        t_min = t;
-                                        hit_pos = pos;
-                                        hit_trimesh_tri_idx = Some((i_trimesh, i_tri));
-                                    }
-                                }
-                                let Some(hit_trimesh_tri_idx) = hit_trimesh_tri_idx else {
-                                    continue;
-                                };
-                                // Ray Tracing
-                                let wo = nalgebra::Vector3::new(-ray_dir[0], -ray_dir[1], -ray_dir[2]);
-                                Lo = shade(wo, &hit_pos, hit_trimesh_tri_idx, &trimeshs[7], &trimeshs);
-                */
-                // store Lo to img
-                /*
-                img[ih * img_shape.0 + iw] =
-                    image::Rgb([nrm[0] * 0.5 + 0.5, nrm[1] * 0.5 + 0.5, nrm[2] * 0.5 + 0.5]);
-                 */
             }
         }
         let file2 = std::fs::File::create("target/02_cornell_box_trace.hdr").unwrap();

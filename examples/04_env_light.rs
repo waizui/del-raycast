@@ -1,33 +1,3 @@
-fn unit2_from_uvec3_octahedra(dir: &[f32; 3]) -> [f32; 2] {
-    let n = dir[0].abs() + dir[1].abs() + dir[2].abs();
-    let oct = [dir[0] / n, dir[1] / n];
-    let oct = if dir[2] < 0. {
-        [
-            (1. - oct[1].abs()) * oct[0].signum(),
-            (1. - oct[0].abs()) * oct[1].signum(),
-        ]
-    } else {
-        oct
-    };
-    [oct[0] * 0.5 + 0.5, oct[1] * 0.5 + 0.5]
-}
-
-/// https://github.com/mmp/pbrt-v4/blob/1ae72cfa7344e79a7815a21ed3da746cdccee59b/src/pbrt/util/math.cpp#L317
-fn unit2_from_uvec3_equal_area(d: &[f32; 3]) -> [f32; 2] {
-    let x = d[0].abs();
-    let y = d[1].abs();
-    let z = d[2].abs();
-    let r = (1. - z).sqrt();
-    let phi = y.atan2(x);
-    let phi = phi * std::f32::consts::FRAC_2_PI;
-    let v = phi * r;
-    let u = r - v;
-    let (u, v) = if d[2] < 0. { (1. - v, 1. - u) } else { (u, v) };
-    let u = u.copysign(d[0]);
-    let v = v.copysign(-d[1]);
-    [u * 0.5 + 0.5, v * 0.5 + 0.5]
-}
-
 fn main() -> anyhow::Result<()> {
     let (tex_shape, tex_data) = {
         let pfm = del_raycast::io_pfm::PFM::read_from(
@@ -95,7 +65,7 @@ fn main() -> anyhow::Result<()> {
                     del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &refl)
                         .unwrap();
                 // let tex_coord = unit2_from_uvec3_equal_area(&[-env[0], -env[1], -env[2]]);
-                let tex_coord = unit2_from_uvec3_equal_area(&env);
+                let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
                 let i_u = (tex_coord[0] * tex_shape.0 as f32).floor() as usize;
                 let i_v = (tex_coord[1] * tex_shape.1 as f32).floor() as usize;
                 let i_u = i_u.clamp(0, tex_shape.0 - 1);
@@ -109,7 +79,7 @@ fn main() -> anyhow::Result<()> {
                 let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
                     .unwrap();
                 // let tex_coord = unit2_from_uvec3_octahedra(&[-env[0], env[1], -env[2]]);
-                let tex_coord = unit2_from_uvec3_equal_area(&env);
+                let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
                 let i_u = (tex_coord[0] * tex_shape.0 as f32).floor() as usize;
                 let i_v = (tex_coord[1] * tex_shape.1 as f32).floor() as usize;
                 let i_u = i_u.clamp(0, tex_shape.0 - 1);
