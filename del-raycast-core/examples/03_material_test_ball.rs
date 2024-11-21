@@ -34,11 +34,43 @@ fn parse_material(scene: &pbrt4::Scene, shape: &pbrt4::ShapeEntity) -> Material 
 
     let mat = &scene.materials[mat_i];
     match mat.name.as_str() {
-        "Stand" | "Floor" => Material::Diff(DiffuseMaterial { refl: [0., 0., 0.] }),
-        "RoughMetal" => Material::Cond(ConductorMaterial {
-            uroughness: 0.,
-            vroughness: 0.,
-        }),
+        "Stand" => {
+            let mut refl = [0.; 3];
+            if let Some((_, _, val)) = mat.params.get("reflectance") {
+                let rgb: Vec<f32> = val
+                    .split(" ")
+                    .map(|v| v.parse::<f32>().unwrap_or_default())
+                    .collect();
+
+                if rgb.len() >= 3 {
+                    refl[0] = rgb[0];
+                    refl[1] = rgb[1];
+                    refl[2] = rgb[2];
+                }
+            }
+
+            Material::Diff(DiffuseMaterial { refl })
+        }
+        "RoughMetal" => {
+            let mut uroughness = 0.;
+            let mut vroughness = 0.;
+            if let Some((_, _, val)) = mat.params.get("reflectance") {
+                let rgb: Vec<f32> = val
+                    .split(" ")
+                    .map(|v| v.parse::<f32>().unwrap_or_default())
+                    .collect();
+
+                if rgb.len() >= 2 {
+                    uroughness = rgb[0];
+                    vroughness = rgb[1];
+                }
+            }
+
+            Material::Cond(ConductorMaterial {
+                uroughness,
+                vroughness,
+            })
+        }
         _ => Material::None,
     }
 }
