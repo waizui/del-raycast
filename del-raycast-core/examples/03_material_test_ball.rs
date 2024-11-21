@@ -1,5 +1,4 @@
 use del_msh_core::search_bvh3::TriMeshWithBvh;
-use ply_rs::ply::PropertyAccess;
 
 struct Shape {
     vtx2xyz: Vec<f32>,
@@ -7,6 +6,41 @@ struct Shape {
     transform: [f32; 16],
     bvhnodes: Vec<usize>,
     bvhnode2aabb: Vec<f32>,
+    material: Material,
+}
+
+enum Material {
+    None,
+    Diff(DiffuseMaterial),
+    Cond(ConductorMaterial),
+}
+
+struct DiffuseMaterial {
+    pub refl: [f32; 3],
+}
+
+struct ConductorMaterial {
+    pub uroughness: f32,
+    pub vroughness: f32,
+}
+
+fn parse_material(scene: &pbrt4::Scene, shape: &pbrt4::ShapeEntity) -> Material {
+    let mat_i = {
+        match shape.material_index {
+            None => return Material::None,
+            Some(i) => i,
+        }
+    };
+
+    let mat = &scene.materials[mat_i];
+    match mat.name.as_str() {
+        "Stand" | "Floor" => Material::Diff(DiffuseMaterial { refl: [0., 0., 0.] }),
+        "RoughMetal" => Material::Cond(ConductorMaterial {
+            uroughness: 0.,
+            vroughness: 0.,
+        }),
+        _ => Material::None,
+    }
 }
 
 fn parse() -> anyhow::Result<(Vec<Shape>, f32, [f32; 16], (usize, usize))> {
@@ -27,24 +61,27 @@ fn parse() -> anyhow::Result<(Vec<Shape>, f32, [f32; 16], (usize, usize))> {
             &vtx2xyz,
             None,
         );
+        let mat = parse_material(&scene, shape_entity);
         let shape = Shape {
             tri2vtx,
             vtx2xyz,
             transform,
             bvhnodes,
             bvhnode2aabb,
+            material: mat,
         };
+
         shapes.push(shape);
     }
     Ok((shapes, camera_fov, transform_cam_glbl2lcl, img_shape))
 }
 
 fn main() -> anyhow::Result<()> {
-    let (shape, camera_fov, transform_cam_glbl2lcl, img_shape) = parse()?;
+    let (shapes, camera_fov, transform_cam_glbl2lcl, img_shape) = parse()?;
     {
         let mut tri2vtx: Vec<usize> = vec![];
         let mut vtx2xyz: Vec<f32> = vec![];
-        for trimesh in shape.iter() {
+        for trimesh in shapes.iter() {
             let t =
                 del_geo_core::mat4_col_major::mult_mat(&transform_cam_glbl2lcl, &trimesh.transform);
             let trimesh_vtx2xyz = del_msh_core::vtx2xyz::transform(&trimesh.vtx2xyz, &t);
@@ -80,7 +117,7 @@ fn main() -> anyhow::Result<()> {
             );
             // compute intersection below
             let mut t_min = f32::INFINITY;
-            for trimesh in shape.iter() {
+            for trimesh in shapes.iter() {
                 let ti = del_geo_core::mat4_col_major::try_inverse(&trimesh.transform).unwrap();
                 let ray_org =
                     del_geo_core::mat4_col_major::transform_homogeneous(&ti, &ray_org).unwrap();
