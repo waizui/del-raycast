@@ -1,9 +1,8 @@
+use crate::sampling;
+use nalgebra::{Vector2, Vector3};
 use std::ops::{BitAnd, BitOr, Mul};
 
-use nalgebra::{Vector2, Vector3};
-
 type Real = f32;
-
 type Vec3f = Vector3<Real>;
 type Vec2f = Vector2<Real>;
 
@@ -107,29 +106,41 @@ impl DiffuseBxDF {
         DiffuseBxDF { r }
     }
 
+    fn same_hemisphere(wo: Vec3f, wi: Vec3f) -> bool {
+        wo.z * wi.z > 0.
+    }
+
     pub fn f(&self, wo: Vec3f, wi: Vec3f) -> SampledSpectrum {
-        if wo.z * wi.z < 0. {
+        if !Self::same_hemisphere(wo, wi) {
             return SampledSpectrum {
                 arr: [0.; N_SPECTRUM_SAMPLES],
             };
         }
         self.r * INV_PI
     }
-    pub fn pdf(&self, wo: Vec3f, wi: Vec3f, sf: BxDFReflTransFlags) -> Real {
-        todo!()
+
+    pub fn pdf(&self, wo: Vec3f, wi: Vec3f) -> Real {
+        if !Self::same_hemisphere(wo, wi) {
+            return 0.;
+        }
+        sampling::pdf_hemisphere_cos(wi.z.abs())
     }
 
-    pub fn sample_f(
-        &self,
-        wo: Vec3f,
-        uc: Real,
-        u: Vec2f,
-        sf: BxDFReflTransFlags,
-    ) -> Option<BSDFSample> {
-        todo!()
+    pub fn sample_f(&self, wo: Vec3f, u: Vec2f) -> Option<BSDFSample> {
+        let mut wi = sampling::hemisphere_zup_cos(&[u.x, u.y]);
+        if wo.z < 0. {
+            wi[2] *= -1.;
+        }
+        let pdf = sampling::pdf_hemisphere_cos(wi[2].abs());
+
+        Some(BSDFSample {
+            flag: BxDFFlags::DIFFUSE | BxDFFlags::REFLECTION,
+            wi: Vec3f::new(wi[0], wi[1], wi[2]),
+            pdf,
+        })
     }
 
     pub fn get_type(&self) -> BxDFFlags {
-        BxDFFlags::DIFFUSE
+        BxDFFlags::DIFFUSE | BxDFFlags::REFLECTION
     }
 }
