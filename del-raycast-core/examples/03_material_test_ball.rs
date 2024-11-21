@@ -79,7 +79,7 @@ fn parse() -> anyhow::Result<(Vec<Shape>, f32, [f32; 16], (usize, usize))> {
     // dbg!(scene.shapes.len());
     let mut shapes: Vec<Shape> = vec![];
     let (camera_fov, transform_cam_glbl2lcl, img_shape) = del_raycast_core::parse_pbrt::hoge(&scene);
-    for shape_entity in scene.shapes {
+    for shape_entity in scene.shapes.iter() {
         let transform = shape_entity.transform.to_cols_array();
         let (_, _, tri2vtx, vtx2xyz, _) =
             del_raycast_core::parse_pbrt::trimesh3_from_shape_entity(&shape_entity, path_file).unwrap();
@@ -91,7 +91,7 @@ fn parse() -> anyhow::Result<(Vec<Shape>, f32, [f32; 16], (usize, usize))> {
             &vtx2xyz,
             None,
         );
-        let mat = parse_material(&scene, shape_entity);
+        let mat = parse_material(&scene, &shape_entity);
         let shape = Shape {
             tri2vtx,
             vtx2xyz,
