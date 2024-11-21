@@ -4,3 +4,4 @@ pub mod io_pfm;
 pub mod parse_pbrt;
 pub mod sampling;
 pub mod raycast_trimesh3;
+pub mod bxdf;
