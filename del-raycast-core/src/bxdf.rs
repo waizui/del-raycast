@@ -75,28 +75,6 @@ pub enum TransportMode {
     Importance,
 }
 
-/// for extentable sample arguments
-// #[derive(Debug, Clone, Copy, Default)]
-// pub struct BxDFExtArgs {
-//     pub mode: Option<TransportMode>,
-//     pub sample_flags: Option<BxDFReflTransFlags>,
-// }
-
-// /// interface of BxDFs
-// pub trait BxDF {
-//     fn get_type(&self) -> BxDFFlags;
-//
-//     fn f(&self, wo: Vec3f, wi: Vec3f, args: BxDFExtArgs) -> SampledSpectrum;
-//
-//     fn pdf(&self, wo: Vec3f, wi: Vec3f, args: BxDFExtArgs) -> f32 {
-//         0.0
-//     }
-//
-//     fn sample_f(&self, wo: Vec3f, uc: f32, u: Vec2f, args: BxDFExtArgs) -> Option<BSDFSample> {
-//         None
-//     }
-// }
-
 pub struct DiffuseBxDF {
     r: SampledSpectrum,
 }
@@ -126,8 +104,9 @@ impl DiffuseBxDF {
         sampling::pdf_hemisphere_cos(wi.z.abs())
     }
 
+    /// return incident light of given outgoing light wo
     pub fn sample_f(&self, wo: Vec3f, u: Vec2f) -> Option<BSDFSample> {
-        let mut wi = sampling::hemisphere_zup_cos(&[u.x, u.y]);
+        let mut wi = sampling::hemisphere_zup_cos_weighted(&[u.x, u.y]);
         if wo.z < 0. {
             wi[2] *= -1.;
         }
