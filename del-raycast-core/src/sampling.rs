@@ -40,3 +40,11 @@ where
         T::one() - tmp.sqrt()
     } // tent filter (-1 .. +1 )
 }
+
+pub fn hemisphere_zup_cos<T>(r2: &[T; 2]) -> [T; 3]
+where
+    T: num_traits::Float + 'static + Copy,
+    f64: AsPrimitive<T>,
+{
+    todo!()
+}

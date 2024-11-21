@@ -1,9 +1,14 @@
-use std::ops::{BitAnd, BitOr};
+use std::ops::{BitAnd, BitOr, Mul};
 
 use nalgebra::{Vector2, Vector3};
 
-type Vec3f = Vector3<f32>;
-type Vec2f = Vector2<f32>;
+type Real = f32;
+
+type Vec3f = Vector3<Real>;
+type Vec2f = Vector2<Real>;
+
+const N_SPECTRUM_SAMPLES: usize = 4;
+const INV_PI: Real = 1. / std::f32::consts::PI;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BxDFFlags(u32);
@@ -40,10 +45,23 @@ impl BitOr for BxDFFlags {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SampledSpectrum {
+    pub arr: [Real; N_SPECTRUM_SAMPLES],
+}
+
+impl Mul<Real> for SampledSpectrum {
+    type Output = Self;
+    fn mul(self, rhs: Real) -> Self::Output {
+        let res = self.arr.map(|x| x * rhs);
+        SampledSpectrum { arr: res }
+    }
+}
+
 pub struct BSDFSample {
     pub flag: BxDFFlags,
     pub wi: Vec3f,
-    pub pdf: f32,
+    pub pdf: Real,
 }
 
 impl BSDFSample {
@@ -59,23 +77,59 @@ pub enum TransportMode {
 }
 
 /// for extentable sample arguments
-#[derive(Debug, Clone, Copy, Default)]
-pub struct BxDFExtArgs {
-    pub mode: Option<TransportMode>,
-    pub sample_flags: Option<BxDFReflTransFlags>,
+// #[derive(Debug, Clone, Copy, Default)]
+// pub struct BxDFExtArgs {
+//     pub mode: Option<TransportMode>,
+//     pub sample_flags: Option<BxDFReflTransFlags>,
+// }
+
+// /// interface of BxDFs
+// pub trait BxDF {
+//     fn get_type(&self) -> BxDFFlags;
+//
+//     fn f(&self, wo: Vec3f, wi: Vec3f, args: BxDFExtArgs) -> SampledSpectrum;
+//
+//     fn pdf(&self, wo: Vec3f, wi: Vec3f, args: BxDFExtArgs) -> f32 {
+//         0.0
+//     }
+//
+//     fn sample_f(&self, wo: Vec3f, uc: f32, u: Vec2f, args: BxDFExtArgs) -> Option<BSDFSample> {
+//         None
+//     }
+// }
+
+pub struct DiffuseBxDF {
+    r: SampledSpectrum,
 }
 
-/// interface of BxDFs
-pub trait BxDF {
-    fn get_type(&self) -> BxDFFlags;
-
-    fn f(&self, wo: Vec3f, wi: Vec3f, args: BxDFExtArgs) -> Vec3f;
-
-    fn pdf(&self, wo: Vec3f, wi: Vec3f, args: BxDFExtArgs) -> f32 {
-        0.0
+impl DiffuseBxDF {
+    pub fn new(r: SampledSpectrum) -> Self {
+        DiffuseBxDF { r }
     }
 
-    fn sample_f(&self, wo: Vec3f, uc: f32, u: Vec2f, args: BxDFExtArgs) -> Option<BSDFSample> {
-        None
+    pub fn f(&self, wo: Vec3f, wi: Vec3f) -> SampledSpectrum {
+        if wo.z * wi.z < 0. {
+            return SampledSpectrum {
+                arr: [0.; N_SPECTRUM_SAMPLES],
+            };
+        }
+        self.r * INV_PI
+    }
+    pub fn pdf(&self, wo: Vec3f, wi: Vec3f, sf: BxDFReflTransFlags) -> Real {
+        todo!()
+    }
+
+    pub fn sample_f(
+        &self,
+        wo: Vec3f,
+        uc: Real,
+        u: Vec2f,
+        sf: BxDFReflTransFlags,
+    ) -> Option<BSDFSample> {
+        todo!()
+    }
+
+    pub fn get_type(&self) -> BxDFFlags {
+        BxDFFlags::DIFFUSE
     }
 }
