@@ -1,5 +1,7 @@
 use num_traits::AsPrimitive;
 
+const INV_PI: f64 = 1. / std::f64::consts::PI;
+
 pub fn hemisphere_zup_cos_weighted<T>(r2: &[T; 2]) -> [T; 3]
 where
     T: num_traits::Float + 'static + Copy,
@@ -39,4 +41,12 @@ where
         let tmp: T = 2_f64.as_() - r1;
         T::one() - tmp.sqrt()
     } // tent filter (-1 .. +1 )
+}
+
+pub fn pdf_hemisphere_cos<T>(cos_theta: T) -> T
+where
+    T: num_traits::Float + 'static + Copy,
+    f64: AsPrimitive<T>,
+{
+    cos_theta * T::from(INV_PI).unwrap()
 }
