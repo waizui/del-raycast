@@ -78,11 +78,13 @@ fn parse() -> anyhow::Result<(Vec<Shape>, f32, [f32; 16], (usize, usize))> {
     let scene = pbrt4::Scene::from_file(path_file)?;
     // dbg!(scene.shapes.len());
     let mut shapes: Vec<Shape> = vec![];
-    let (camera_fov, transform_cam_glbl2lcl, img_shape) = del_raycast_core::parse_pbrt::hoge(&scene);
+    let (camera_fov, transform_cam_glbl2lcl, img_shape) =
+        del_raycast_core::parse_pbrt::hoge(&scene);
     for shape_entity in scene.shapes.iter() {
         let transform = shape_entity.transform.to_cols_array();
         let (_, _, tri2vtx, vtx2xyz, _) =
-            del_raycast_core::parse_pbrt::trimesh3_from_shape_entity(&shape_entity, path_file).unwrap();
+            del_raycast_core::parse_pbrt::trimesh3_from_shape_entity(&shape_entity, path_file)
+                .unwrap();
         let bvhnodes = del_msh_core::bvhnodes_morton::from_triangle_mesh(&tri2vtx, &vtx2xyz, 3);
         let bvhnode2aabb = del_msh_core::bvhnode2aabb3::from_uniform_mesh_with_bvh(
             0,
@@ -147,8 +149,8 @@ fn main() -> anyhow::Result<()> {
             );
             // compute intersection below
             let mut t_min = f32::INFINITY;
-            let mut shape_i:usize = usize::MAX;
-            for (s_i,trimesh) in shapes.iter().enumerate() {
+            let mut shape_i: usize = usize::MAX;
+            for (s_i, trimesh) in shapes.iter().enumerate() {
                 let ti = del_geo_core::mat4_col_major::try_inverse(&trimesh.transform).unwrap();
                 let ray_org =
                     del_geo_core::mat4_col_major::transform_homogeneous(&ti, &ray_org).unwrap();
@@ -167,9 +169,8 @@ fn main() -> anyhow::Result<()> {
                     vtx2xyz: &trimesh.vtx2xyz,
                     bvhnodes: &trimesh.bvhnodes,
                     bvhnode2aabb: &trimesh.bvhnode2aabb,
-                }, 0, f32::INFINITY) 
+                }, 0, f32::INFINITY)
                 else {
-
                     continue;
                 };
                 if t < t_min {
@@ -177,13 +178,13 @@ fn main() -> anyhow::Result<()> {
                     t_min = t;
                 }
             }
-            
+
             // TODO:delete test code
             let v = (t_min - 1.5) * 0.8;
-            let c =  match &shapes[shape_i].material {
-                Material::Diff(_) => [0.,0.,v],
-                Material::Cond(_) => [0.,v,0.],
-                _ => [v;3],
+            let c = match &shapes[shape_i].material {
+                Material::Diff(_) => [0., 0., v],
+                Material::Cond(_) => [0., v, 0.],
+                _ => [v; 3],
             };
 
             img[ih * img_shape.0 + iw] = image::Rgb(c);
