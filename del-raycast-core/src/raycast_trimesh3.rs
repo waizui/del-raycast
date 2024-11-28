@@ -52,9 +52,9 @@ where
             0,
             f32::INFINITY,
         ) {
-            return i_tri.as_();
+            i_tri.as_()
         } else {
-            return Index::max_value();
+            Index::max_value()
         }
     };
     let img: Vec<Index> = (0..img_shape.0 * img_shape.1)
@@ -170,7 +170,7 @@ where
             };
             let q = del_geo_core::vec3::axpy(a, &ray_dir, &ray_org);
             let bc = del_geo_core::tri3::to_barycentric_coords(tri.p0, tri.p1, tri.p2, &q);
-            let uv0 = arrayref::array_ref!(vtx2uv, tri2vtx[i_tri * 3 + 0] * 2, 2);
+            let uv0 = arrayref::array_ref!(vtx2uv, tri2vtx[i_tri * 3] * 2, 2);
             let uv1 = arrayref::array_ref!(vtx2uv, tri2vtx[i_tri * 3 + 1] * 2, 2);
             let uv2 = arrayref::array_ref!(vtx2uv, tri2vtx[i_tri * 3 + 2] * 2, 2);
             let uv = [
