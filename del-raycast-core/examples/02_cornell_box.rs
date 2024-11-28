@@ -117,6 +117,49 @@ fn intersection_ray_trimeshs(
     t_trimsh_tri
 }
 
+fn radiance<RNG>(
+    ray0_org: &[f32; 3],
+    ray0_dir: &[f32; 3],
+    i_depth: u32,
+    trimeshs: &Vec<TriangleMesh>,
+    rng: &mut RNG) -> [f32; 3]
+where RNG: rand::Rng,
+{
+    let Some((t1, i_trimsh1, i_tri1)) = intersection_ray_trimeshs(&ray0_org, &ray0_dir, &trimeshs)
+    else {
+        return [0f32; 3]; // the primal ray does not hit anything..
+    };
+    let pos1 = del_geo_core::vec3::axpy(t1, &ray0_dir, &ray0_org);
+    let nrm1 = trimeshs[i_trimsh1].normal_at(&pos1, i_tri1);
+    let emittance1 = if let Some((spectrum1, two_sided1)) = trimeshs[i_trimsh1].spectrum {
+        if two_sided1 || (del_geo_core::vec3::dot(&nrm1, &ray0_dir) < 0.) {
+            // the primal ray hit light
+            spectrum1
+        } else {
+            [0f32; 3] // backside of the light does not emit light
+        }
+    } else {
+        [0f32; 3] // this triangle mesh does not emit light
+    };
+    let reflectance1 = &trimeshs[i_trimsh1].reflectance.to_owned();
+    let nrm1 = if del_geo_core::vec3::dot(&nrm1, &ray0_dir) > 0. {
+        [-nrm1[0], -nrm1[1], -nrm1[2]]
+    } else {
+        nrm1
+    };
+    if i_depth > 65 {
+        return emittance1;
+    }
+    let ray1_dir: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
+        &nalgebra::Vector3::<f32>::new(nrm1[0], nrm1[1], nrm1[2]),
+        &[rng.gen::<f32>(), rng.gen::<f32>()],
+    ).into();
+    let ray1_org = del_geo_core::vec3::axpy(1.0e-3, &nrm1, &pos1);
+    let iradiance1 = radiance(&ray1_org, &ray1_dir, i_depth+1, trimeshs, rng);
+    let tmp0 = del_geo_core::vec3::element_wise_mult(&reflectance1, &iradiance1);
+    del_geo_core::vec3::add(&tmp0, &emittance1)
+}
+
 fn main() -> anyhow::Result<()> {
     let pbrt_file_path = "asset/cornell-box/scene-v4.pbrt";
     let (trimeshs, camera_fov, transform_cam_glbl2lcl, img_shape) =
@@ -323,7 +366,7 @@ fn main() -> anyhow::Result<()> {
     }
     {
         // material sampling
-        let num_sample = 100;
+        let num_sample = 10;
         let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
             use rand::Rng;
             use rand::SeedableRng;
@@ -394,6 +437,44 @@ fn main() -> anyhow::Result<()> {
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         let file2 = std::fs::File::create("target/02_cornell_box_material_sampling.hdr").unwrap();
+        use image::codecs::hdr::HdrEncoder;
+        let enc = HdrEncoder::new(file2);
+        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+    }
+    {
+        // material sampling
+        let num_sample = 64;
+        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+            use rand::Rng;
+            use rand::SeedableRng;
+            let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
+            let ih = i_pix / img_shape.0;
+            let iw = i_pix % img_shape.0;
+            let mut l_o = [0., 0., 0.];
+            for _i_sample in 0..num_sample {
+                let (ray0_org, ray0_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                    iw,
+                    ih,
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                let rad = radiance(&ray0_org, &ray0_dir, 0, &trimeshs, &mut rng);
+                l_o[0] += rad[0];
+                l_o[1] += rad[1];
+                l_o[2] += rad[2];
+            }
+            (*pix).0[0] = l_o[0] / num_sample as f32;
+            (*pix).0[1] = l_o[1] / num_sample as f32;
+            (*pix).0[2] = l_o[2] / num_sample as f32;
+        };
+        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::ParallelIterator;
+        img.par_iter_mut()
+            .enumerate()
+            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+        let file2 = std::fs::File::create("target/02_cornell_box_pt0.hdr").unwrap();
         use image::codecs::hdr::HdrEncoder;
         let enc = HdrEncoder::new(file2);
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
