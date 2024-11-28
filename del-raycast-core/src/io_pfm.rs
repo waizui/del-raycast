@@ -77,4 +77,32 @@ impl PFM {
             little_endian: true,
         })
     }
+
+    pub fn save(&self, path: &str) -> anyhow::Result<()> {
+        use std::io::Write;
+        let mut file = File::create(path)?;
+        let header = match self.channels {
+            3 => "PF\n",
+            1 => "Pf\n",
+            _ => return Err(anyhow!("Invalid number of channels")),
+        };
+
+        file.write_all(header.as_bytes())?;
+        let dimensions = format!("{} {}\n", self.w, self.h);
+        file.write_all(dimensions.as_bytes())?;
+
+        let scale = if self.little_endian { -1.0 } else { 1.0 };
+        file.write_all(format!("{}\n", scale).as_bytes())?;
+
+        for value in &self.data {
+            let bytes = if self.little_endian {
+                value.to_le_bytes()
+            } else {
+                value.to_be_bytes()
+            };
+            file.write_all(&bytes)?;
+        }
+
+        Ok(())
+    }
 }
