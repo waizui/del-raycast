@@ -87,5 +87,4 @@ void pix_to_tri(
     pix2tri[i_pix] = hit_idxtri;
 }
 
-
 }

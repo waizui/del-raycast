@@ -89,4 +89,6 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 #[cfg(not(feature = "cuda"))]
-fn main() {}
+fn main() {
+    panic!("This example requires the cuda feature. \"--features cuda\"");
+}
