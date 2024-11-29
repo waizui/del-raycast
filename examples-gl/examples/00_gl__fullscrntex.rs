@@ -16,7 +16,7 @@ impl del_gl_winit_glutin::app3::Content for Content {
     fn new() -> Self {
         let (tri2vtx, vtx2xyz, vtx2uv) = {
             let mut obj = del_msh_core::io_obj::WavefrontObj::<usize, f32>::new();
-            obj.load("asset/spot_triangulated.obj").unwrap();
+            obj.load("asset/spot/spot_triangulated.obj").unwrap();
             obj.unified_xyz_uv_as_trimesh()
         };
         let bvhnodes = del_msh_core::bvhnodes_morton::from_triangle_mesh(&tri2vtx, &vtx2xyz, 3);
@@ -29,7 +29,7 @@ impl del_gl_winit_glutin::app3::Content for Content {
         );
         //println!("{:?}",img.color());
         let (tex_data, tex_shape, _bitdepth) =
-            del_canvas_image::load_image_as_float_array("asset/spot_texture.png").unwrap();
+            del_canvas_image::load_image_as_float_array("asset/spot/spot_texture.png").unwrap();
         //
         Self {
             tri2vtx,

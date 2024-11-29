@@ -9,7 +9,7 @@ license.workspace = true
 cuda = [
     "dep:cudarc",
     "dep:del-msh-cudarc",
-    "dep:del-raycast-cudarc"]
+    "del-raycast-cudarc/cuda"]
 
 
 [dependencies]

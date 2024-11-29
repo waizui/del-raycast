@@ -112,7 +112,7 @@ impl del_gl_winit_glutin::app3::Content for Content {
             &transform_ndc2world,
         );
          */
-        let img_data = del_raycast::raycast_trimesh3::render_texture_from_pix2tri(
+        let img_data = del_raycast_core::raycast_trimesh3::render_texture_from_pix2tri(
             img_shape,
             &transform_ndc2world,
             &self.tri2vtx,
@@ -154,4 +154,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(not(feature = "cuda"))]
-fn main() {}
+fn main() {
+    println!("this example need features cuda: --features cuda");
+}
