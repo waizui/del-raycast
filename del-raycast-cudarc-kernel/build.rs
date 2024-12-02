@@ -1,8 +1,8 @@
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/pix2tri.cu");
-    let out_dir = std::env::var("OUT_DIR").unwrap();
-    let path_out_dir = std::path::Path::new(&out_dir).join("cpp_headers");
+    let path_out_dir = std::env::var("OUT_DIR").unwrap();
+    let path_out_dir = std::path::Path::new(&path_out_dir).join("cpp_headers");
     // dbg!(&path_out_dir);
     std::fs::create_dir_all(&path_out_dir).unwrap();
     del_geo_cpp_headers::HEADERS.write_files(&path_out_dir);

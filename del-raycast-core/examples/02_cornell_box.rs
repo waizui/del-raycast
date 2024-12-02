@@ -86,7 +86,7 @@ fn parse_pbrt_file(
     Ok((shapes, camera_fov, transform_cam_glbl2lcl, img_shape))
 }
 
-fn intersection_ray_trimeshs(
+fn intersection_ray_against_trimeshs(
     ray_org: &[f32; 3],
     ray_dir: &[f32; 3],
     trimeshs: &[TriangleMesh],
@@ -117,15 +117,41 @@ fn intersection_ray_trimeshs(
     t_trimsh_tri
 }
 
-fn radiance<RNG>(
+fn sampling_light(
+    tri2cumsumarea: &[f32],
+    r2: [f32; 2],
+    triangle_mesh: &TriangleMesh,
+) -> ([f32; 3], [f32; 3]) {
+    let (i_tri_light, r1, r2) =
+        del_msh_core::sampling::sample_uniformly_trimesh(&tri2cumsumarea, r2[0], r2[1]);
+    let (p0, p1, p2) = del_msh_core::trimesh3::to_corner_points(
+        &triangle_mesh.tri2vtx,
+        &triangle_mesh.vtx2xyz,
+        i_tri_light,
+    );
+    let light_pos = del_geo_core::tri3::position_from_barycentric_coords(
+        &p0,
+        &p1,
+        &p2,
+        &[1. - r1 - r2, r1, r2],
+    );
+    let light_nrm = triangle_mesh.normal_at(&light_pos, i_tri_light);
+    let light_pos = del_geo_core::vec3::axpy(1.0e-3, &light_nrm, &light_pos);
+    (light_pos, light_nrm)
+}
+
+fn radiance_material<RNG>(
     ray0_org: &[f32; 3],
     ray0_dir: &[f32; 3],
     i_depth: u32,
     trimeshs: &Vec<TriangleMesh>,
-    rng: &mut RNG) -> [f32; 3]
-where RNG: rand::Rng,
+    rng: &mut RNG,
+) -> [f32; 3]
+where
+    RNG: rand::Rng,
 {
-    let Some((t1, i_trimsh1, i_tri1)) = intersection_ray_trimeshs(&ray0_org, &ray0_dir, &trimeshs)
+    let Some((t1, i_trimsh1, i_tri1)) =
+        intersection_ray_against_trimeshs(&ray0_org, &ray0_dir, &trimeshs)
     else {
         return [0f32; 3]; // the primal ray does not hit anything..
     };
@@ -153,9 +179,10 @@ where RNG: rand::Rng,
     let ray1_dir: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
         &nalgebra::Vector3::<f32>::new(nrm1[0], nrm1[1], nrm1[2]),
         &[rng.gen::<f32>(), rng.gen::<f32>()],
-    ).into();
+    )
+    .into();
     let ray1_org = del_geo_core::vec3::axpy(1.0e-3, &nrm1, &pos1);
-    let iradiance1 = radiance(&ray1_org, &ray1_dir, i_depth+1, trimeshs, rng);
+    let iradiance1 = radiance_material(&ray1_org, &ray1_dir, i_depth + 1, trimeshs, rng);
     let tmp0 = del_geo_core::vec3::element_wise_mult(&reflectance1, &iradiance1);
     del_geo_core::vec3::add(&tmp0, &emittance1)
 }
@@ -187,7 +214,19 @@ fn main() -> anyhow::Result<()> {
     }
     let transform_cam_lcl2glbl =
         del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
-
+    // Get the area light source
+    let i_trimesh_light = trimeshs
+        .iter()
+        .enumerate()
+        .find_or_first(|(_i_trimesh, trimsh)| trimsh.spectrum.is_some())
+        .unwrap()
+        .0;
+    let tri2cumsumarea = del_msh_core::sampling::cumulative_area_sum(
+        &trimeshs[i_trimesh_light].tri2vtx,
+        &trimeshs[i_trimesh_light].vtx2xyz,
+        3,
+    );
+    let &area_light = tri2cumsumarea.last().unwrap();
     {
         // computing depth image
         let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
@@ -246,7 +285,7 @@ fn main() -> anyhow::Result<()> {
                 transform_cam_lcl2glbl,
             );
             let Some((_t, i_trimsh, _i_tri)) =
-                intersection_ray_trimeshs(&ray_org, &ray_dir, &trimeshs)
+                intersection_ray_against_trimeshs(&ray_org, &ray_dir, &trimeshs)
             else {
                 return;
             };
@@ -263,19 +302,6 @@ fn main() -> anyhow::Result<()> {
     }
     {
         // light sampling
-        // Get the area light source
-        let i_trimesh_light = trimeshs
-            .iter()
-            .enumerate()
-            .find_or_first(|(_i_trimesh, trimsh)| trimsh.spectrum.is_some())
-            .unwrap()
-            .0;
-        let area_sum_buf = del_msh_core::sampling::cumulative_area_sum(
-            &trimeshs[i_trimesh_light].tri2vtx,
-            &trimeshs[i_trimesh_light].vtx2xyz,
-            3,
-        );
-        let &area_light = area_sum_buf.last().unwrap();
         let num_sample = 4;
         let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
             use rand::Rng;
@@ -293,7 +319,7 @@ fn main() -> anyhow::Result<()> {
                     transform_cam_lcl2glbl,
                 );
                 let Some((ray_t, i_trimsh_hit, i_tri_hit)) =
-                    intersection_ray_trimeshs(&ray_org, &ray_dir, &trimeshs)
+                    intersection_ray_against_trimeshs(&ray_org, &ray_dir, &trimeshs)
                 else {
                     return;
                 };
@@ -301,25 +327,7 @@ fn main() -> anyhow::Result<()> {
                     *pix = image::Rgb(trimeshs[i_trimsh_hit].spectrum.unwrap().0);
                     return;
                 }
-                let (i_tri_light, r1, r2) = del_msh_core::sampling::sample_uniformly_trimesh(
-                    &area_sum_buf,
-                    rng.gen::<f32>(),
-                    rng.gen::<f32>(),
-                );
-                let (p0, p1, p2) = del_msh_core::trimesh3::to_corner_points(
-                    &trimeshs[i_trimesh_light].tri2vtx,
-                    &trimeshs[i_trimesh_light].vtx2xyz,
-                    i_tri_light,
-                );
-                let light_pos = del_geo_core::tri3::position_from_barycentric_coords(
-                    &p0,
-                    &p1,
-                    &p2,
-                    &[1. - r1 - r2, r1, r2],
-                );
                 use del_geo_core::vec3;
-                let light_nrm = trimeshs[i_trimesh_light].normal_at(&light_pos, i_tri_light);
-                let light_pos = vec3::axpy(1.0e-3, &light_nrm, &light_pos);
                 let hit_pos = vec3::axpy(ray_t, &ray_dir, &ray_org);
                 let hit_nrm = trimeshs[i_trimsh_hit].normal_at(&hit_pos, i_tri_hit);
                 let hit_nrm = if vec3::dot(&hit_nrm, &ray_dir) > 0. {
@@ -328,6 +336,11 @@ fn main() -> anyhow::Result<()> {
                     hit_nrm
                 };
                 let hit_pos = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
+                let (light_pos, light_nrm) = sampling_light(
+                    &tri2cumsumarea,
+                    [rng.gen(), rng.gen()],
+                    &trimeshs[i_trimesh_light],
+                );
                 //
                 let uvec_from_hit_to_light = vec3::normalized(&vec3::sub(&light_pos, &hit_pos));
                 let cos_theta_hit = vec3::dot(&hit_nrm, &uvec_from_hit_to_light);
@@ -336,7 +349,7 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 } // backside of light
                 if let Some((_t, i_trimsh, _i_tri)) =
-                    intersection_ray_trimeshs(&hit_pos, &uvec_from_hit_to_light, &trimeshs)
+                    intersection_ray_against_trimeshs(&hit_pos, &uvec_from_hit_to_light, &trimeshs)
                 {
                     if i_trimsh != i_trimesh_light {
                         continue;
@@ -383,7 +396,7 @@ fn main() -> anyhow::Result<()> {
                     transform_cam_lcl2glbl,
                 );
                 let Some((t1, i_trimsh1, i_tri1)) =
-                    intersection_ray_trimeshs(&ray0_org, &ray0_dir, &trimeshs)
+                    intersection_ray_against_trimeshs(&ray0_org, &ray0_dir, &trimeshs)
                 else {
                     continue; // the primal ray does not hit anything..
                 };
@@ -410,7 +423,7 @@ fn main() -> anyhow::Result<()> {
                 .into();
                 let ray1_org = del_geo_core::vec3::axpy(1.0e-3, &nrm1, &pos1);
                 let Some((t2, i_trimsh2, i_tri2)) =
-                    intersection_ray_trimeshs(&ray1_org, &ray1_dir, &trimeshs)
+                    intersection_ray_against_trimeshs(&ray1_org, &ray1_dir, &trimeshs)
                 else {
                     continue;
                 };
@@ -442,8 +455,8 @@ fn main() -> anyhow::Result<()> {
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
     }
     {
-        // material sampling
-        let num_sample = 64;
+        // path tracing sampling material
+        let num_sample = 16;
         let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
             use rand::Rng;
             use rand::SeedableRng;
@@ -459,7 +472,7 @@ fn main() -> anyhow::Result<()> {
                     camera_fov,
                     transform_cam_lcl2glbl,
                 );
-                let rad = radiance(&ray0_org, &ray0_dir, 0, &trimeshs, &mut rng);
+                let rad = radiance_material(&ray0_org, &ray0_dir, 0, &trimeshs, &mut rng);
                 l_o[0] += rad[0];
                 l_o[1] += rad[1];
                 l_o[2] += rad[2];
@@ -474,7 +487,7 @@ fn main() -> anyhow::Result<()> {
         img.par_iter_mut()
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        let file2 = std::fs::File::create("target/02_cornell_box_pt0.hdr").unwrap();
+        let file2 = std::fs::File::create("target/02_cornell_box_pt_material.hdr").unwrap();
         use image::codecs::hdr::HdrEncoder;
         let enc = HdrEncoder::new(file2);
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
