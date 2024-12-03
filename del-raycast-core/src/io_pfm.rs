@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use itertools::Itertools;
 use std::fs::File;
 use std::io::BufReader;
 
@@ -11,7 +12,7 @@ pub struct PFM {
 }
 
 impl PFM {
-    pub fn read_from(path: &str) -> anyhow::Result<PFM> {
+    pub fn read_from<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<PFM> {
         use std::io::BufRead;
         use std::io::Read;
         let file = File::open(path)?;
@@ -29,7 +30,7 @@ impl PFM {
 
         let mut dimensions = String::new();
         reader.read_line(&mut dimensions)?;
-        let dims: Vec<&str> = dimensions.split_whitespace().collect();
+        let dims = dimensions.split_whitespace().collect_vec();
 
         if dims.len() != 2 {
             return Err(anyhow!("Invalid dimensions format"));
@@ -60,7 +61,7 @@ impl PFM {
         // convert bytes to f32 values
         let mut data = Vec::with_capacity(data_size);
         for chunk in buffer.chunks_exact(4) {
-            let bytes = [chunk[0], chunk[1], chunk[2], chunk[3]];
+            let bytes = chunk[..4].try_into().unwrap();
             let value = if little_endian {
                 f32::from_le_bytes(bytes)
             } else {
