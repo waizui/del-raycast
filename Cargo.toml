@@ -15,7 +15,7 @@ description = "hogehoge"
 license = "MIT"
 
 [workspace.dependencies.cudarc]
-version = "*"
+version = "0.12.1"
 features = [
     "std", "cublas", "cublaslt", "curand", "driver", "nvrtc",
     "f16", "cuda-version-from-build-system", "dynamic-linking"]

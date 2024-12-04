@@ -39,7 +39,7 @@ jobs:
         run: cargo clippy -- -D warnings
         
       - name: Run tests
-        run: cargo test
+        run: cargo test --release
 
   build:
     name: Build
@@ -63,4 +63,4 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
           
       - name: Build
-        run: cargo build --release --all-features
+        run: cargo build --release
