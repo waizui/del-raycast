@@ -455,6 +455,146 @@ fn main() -> anyhow::Result<()> {
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
     }
     {
+        // Multiple importance sampling on both light and BSDF, use balance heuristic to get the weight for different sampling strategies
+        let num_sample_light = 20;
+        let num_sample_bsdf = 20;
+        let c_light = num_sample_light as f32 / (num_sample_light + num_sample_bsdf) as f32;
+        let c_bsdf = num_sample_bsdf as f32 / (num_sample_light + num_sample_bsdf) as f32;
+        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+            use del_geo_core::vec3;
+            use rand::Rng;
+            use rand::SeedableRng;
+            let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
+            let ih = i_pix / img_shape.0;
+            let iw = i_pix % img_shape.0;
+            let mut l_o = [0., 0., 0.];
+            for _i_sample in 0..num_sample_light {
+                let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                    iw,
+                    ih,
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                let Some((ray_t, i_trimsh_hit, i_tri_hit)) =
+                    intersection_ray_against_trimeshs(&ray_org, &ray_dir, &trimeshs)
+                else {
+                    continue; // the primal ray does not hit anything..
+                };
+                if trimeshs[i_trimsh_hit].spectrum.is_some() {
+                    // the primal ray hit light
+                    l_o[0] += trimeshs[i_trimsh_hit].spectrum.unwrap().0[0];
+                    l_o[1] += trimeshs[i_trimsh_hit].spectrum.unwrap().0[1];
+                    l_o[2] += trimeshs[i_trimsh_hit].spectrum.unwrap().0[2];
+                    continue;
+                }
+                let hit_pos = vec3::axpy(ray_t, &ray_dir, &ray_org);
+                let hit_nrm = trimeshs[i_trimsh_hit].normal_at(&hit_pos, i_tri_hit);
+                let hit_nrm = if vec3::dot(&hit_nrm, &ray_dir) > 0. {
+                    [-hit_nrm[0], -hit_nrm[1], -hit_nrm[2]]
+                } else {
+                    hit_nrm
+                };
+                let hit_pos = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
+                let (light_pos, light_nrm) = sampling_light(
+                    &tri2cumsumarea,
+                    [rng.gen(), rng.gen()],
+                    &trimeshs[i_trimesh_light],
+                );
+                let uvec_from_hit_to_light = vec3::normalized(&vec3::sub(&light_pos, &hit_pos));
+                let cos_theta_hit = vec3::dot(&hit_nrm, &uvec_from_hit_to_light);
+                let cos_theta_light = -vec3::dot(&light_nrm, &uvec_from_hit_to_light);
+                if cos_theta_light < 0. {
+                    continue;
+                } // backside of light
+                if let Some((_t, i_trimsh, _i_tri)) =
+                    intersection_ray_against_trimeshs(&hit_pos, &uvec_from_hit_to_light, &trimeshs)
+                {
+                    if i_trimsh != i_trimesh_light {
+                        continue;
+                    }
+                } else {
+                    continue;
+                };
+                let l_i = trimeshs[i_trimesh_light].spectrum.unwrap().0;
+                let pdf_light = 1.0 / area_light;
+                let pdf_bsdf = 1.0 / (2.0 * std::f32::consts::PI);
+                let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
+                let reflectance = trimeshs[i_trimsh_hit].reflectance;
+                let li_r = vec3::element_wise_mult(&l_i, &reflectance);
+                let tmp = cos_theta_hit * cos_theta_light
+                    / (r2 * (pdf_light * c_light + pdf_bsdf * c_bsdf) as f32);
+                l_o = vec3::axpy(tmp, &li_r, &l_o);
+            }
+            for _i_sample in 0..num_sample_bsdf {
+                let (ray0_org, ray0_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                    iw,
+                    ih,
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                let Some((t1, i_trimsh1, i_tri1)) =
+                    intersection_ray_against_trimeshs(&ray0_org, &ray0_dir, &trimeshs)
+                else {
+                    continue; // the primal ray does not hit anything..
+                };
+                let pos1 = vec3::axpy(t1, &ray0_dir, &ray0_org);
+                let nrm1 = trimeshs[i_trimsh1].normal_at(&pos1, i_tri1);
+                if let Some((spectrum1, two_sided1)) = trimeshs[i_trimsh1].spectrum {
+                    // the primal ray hit light
+                    if two_sided1 || (vec3::dot(&nrm1, &ray0_dir) < 0.) {
+                        l_o[0] += spectrum1[0];
+                        l_o[1] += spectrum1[1];
+                        l_o[2] += spectrum1[2];
+                        continue;
+                    }
+                }
+                let nrm1 = if vec3::dot(&nrm1, &ray0_dir) > 0. {
+                    [-nrm1[0], -nrm1[1], -nrm1[2]]
+                } else {
+                    nrm1
+                };
+                let ray1_dir: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
+                    &nalgebra::Vector3::<f32>::new(nrm1[0], nrm1[1], nrm1[2]),
+                    &[rng.gen::<f32>(), rng.gen::<f32>()],
+                )
+                .into();
+                let ray1_org = vec3::axpy(1.0e-3, &nrm1, &pos1);
+                let Some((t2, i_trimsh2, i_tri2)) =
+                    intersection_ray_against_trimeshs(&ray1_org, &ray1_dir, &trimeshs)
+                else {
+                    continue;
+                };
+                let Some((spectrum2, two_sided2)) = trimeshs[i_trimsh2].spectrum else {
+                    continue;
+                };
+                let pos2 = vec3::axpy(t2, &ray1_dir, &ray1_org);
+                let nrm2 = trimeshs[i_trimsh2].normal_at(&pos2, i_tri2);
+                if !two_sided2 && (vec3::dot(&nrm2, &ray1_dir) > 0.) {
+                    continue;
+                }
+                l_o[0] += spectrum2[0] * trimeshs[i_trimsh1].reflectance[0];
+                l_o[1] += spectrum2[1] * trimeshs[i_trimsh1].reflectance[1];
+                l_o[2] += spectrum2[2] * trimeshs[i_trimsh1].reflectance[2];
+            }
+            (*pix).0[0] = l_o[0] / (num_sample_light + num_sample_bsdf) as f32;
+            (*pix).0[1] = l_o[1] / (num_sample_light + num_sample_bsdf) as f32;
+            (*pix).0[2] = l_o[2] / (num_sample_light + num_sample_bsdf) as f32;
+        };
+        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::ParallelIterator;
+        img.par_iter_mut()
+            .enumerate()
+            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+        let file2 =
+            std::fs::File::create("target/02_cornell_box_material_light_sampling.hdr").unwrap();
+        use image::codecs::hdr::HdrEncoder;
+        let enc = HdrEncoder::new(file2);
+        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+    }
+    {
         // path tracing sampling material
         let num_sample = 16;
         let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
@@ -488,6 +628,103 @@ fn main() -> anyhow::Result<()> {
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         let file2 = std::fs::File::create("target/02_cornell_box_pt_material.hdr").unwrap();
+        use image::codecs::hdr::HdrEncoder;
+        let enc = HdrEncoder::new(file2);
+        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+    }
+    {
+        // path tracing next event estimation
+        let num_sample_light = 8;
+        let num_sample_material = 8;
+        let c_light = num_sample_light as f32 / (num_sample_light + num_sample_material) as f32;
+        let c_bsdf = num_sample_material as f32 / (num_sample_light + num_sample_material) as f32;
+        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+            use rand::Rng;
+            use rand::SeedableRng;
+            let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
+            let ih = i_pix / img_shape.0;
+            let iw = i_pix % img_shape.0;
+            let mut l_brdf = [0., 0., 0.];
+            for _i_sample in 0..num_sample_material {
+                let (ray0_org, ray0_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                    iw,
+                    ih,
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                let rad = radiance_material(&ray0_org, &ray0_dir, 0, &trimeshs, &mut rng);
+                l_brdf[0] += rad[0] / num_sample_material as f32;
+                l_brdf[1] += rad[1] / num_sample_material as f32;
+                l_brdf[2] += rad[2] / num_sample_material as f32;
+            }
+            let mut l_light = [0., 0., 0.];
+            for _i_sample in 0..num_sample_light {
+                let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                    iw,
+                    ih,
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                let Some((ray_t, i_trimsh_hit, i_tri_hit)) =
+                    intersection_ray_against_trimeshs(&ray_org, &ray_dir, &trimeshs)
+                else {
+                    return;
+                };
+                if trimeshs[i_trimsh_hit].spectrum.is_some() {
+                    *pix = image::Rgb(trimeshs[i_trimsh_hit].spectrum.unwrap().0);
+                    return;
+                }
+                use del_geo_core::vec3;
+                let hit_pos = vec3::axpy(ray_t, &ray_dir, &ray_org);
+                let hit_nrm = trimeshs[i_trimsh_hit].normal_at(&hit_pos, i_tri_hit);
+                let hit_nrm = if vec3::dot(&hit_nrm, &ray_dir) > 0. {
+                    [-hit_nrm[0], -hit_nrm[1], -hit_nrm[2]]
+                } else {
+                    hit_nrm
+                };
+                let hit_pos = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
+                let (light_pos, light_nrm) = sampling_light(
+                    &tri2cumsumarea,
+                    [rng.gen(), rng.gen()],
+                    &trimeshs[i_trimesh_light],
+                );
+                //
+                let uvec_from_hit_to_light = vec3::normalized(&vec3::sub(&light_pos, &hit_pos));
+                let cos_theta_hit = vec3::dot(&hit_nrm, &uvec_from_hit_to_light);
+                let cos_theta_light = -vec3::dot(&light_nrm, &uvec_from_hit_to_light);
+                if cos_theta_light < 0. {
+                    continue;
+                } // backside of light
+                if let Some((_t, i_trimsh, _i_tri)) =
+                    intersection_ray_against_trimeshs(&hit_pos, &uvec_from_hit_to_light, &trimeshs)
+                {
+                    if i_trimsh != i_trimesh_light {
+                        continue;
+                    }
+                } else {
+                    continue;
+                };
+                let l_i = trimeshs[i_trimesh_light].spectrum.unwrap().0;
+                let pdf = 1.0 / area_light;
+                let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
+                let reflectance = trimeshs[i_trimsh_hit].reflectance;
+                let li_r = vec3::element_wise_mult(&l_i, &reflectance);
+                let tmp = cos_theta_hit * cos_theta_light / (r2 * pdf * num_sample_light as f32);
+                l_light = vec3::axpy(tmp, &li_r, &l_light);
+            }
+            (*pix).0[0] = c_light * l_light[0] + c_bsdf * l_brdf[0];
+            (*pix).0[1] = c_light * l_light[1] + c_bsdf * l_brdf[1];
+            (*pix).0[2] = c_light * l_light[2] + c_bsdf * l_brdf[2];
+        };
+        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::ParallelIterator;
+        img.par_iter_mut()
+            .enumerate()
+            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+        let file2 = std::fs::File::create("target/02_cornell_box_pt_nee_material.hdr").unwrap();
         use image::codecs::hdr::HdrEncoder;
         let enc = HdrEncoder::new(file2);
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
