@@ -6,7 +6,11 @@ fn main() {
     // dbg!(&path_out_dir);
     std::fs::create_dir_all(&path_out_dir).unwrap();
     del_geo_cpp_headers::HEADERS.write_files(&path_out_dir);
-    let glob_input = path_out_dir.join("*.h").into_os_string().into_string().unwrap();
+    let glob_input = path_out_dir
+        .join("*.h")
+        .into_os_string()
+        .into_string()
+        .unwrap();
     // dbg!(&glob_input);
     let builder = bindgen_cuda::Builder::default().include_paths_glob(&glob_input);
     println!("cargo:info={builder:?}");
