@@ -85,7 +85,7 @@ pub fn render_depth_bvh(
         for iw in 0..width {
             let (ray_org, ray_dir) =
                 crate::cam3::ray3_homogeneous((iw, ih), &image_size, transform_ndc2world);
-            let mut hits: Vec<(f32, usize)> = vec![];
+            let mut hits = vec![];
             del_msh_core::search_bvh3::intersections_ray(
                 &mut hits,
                 &ray_org,
