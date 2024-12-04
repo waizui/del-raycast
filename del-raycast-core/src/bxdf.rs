@@ -22,12 +22,14 @@ impl BxDFFlags {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct BxDFReflTransFlags(u32);
+pub struct BxDFReflTransFlags {
+    _flg: u32,
+}
 
 impl BxDFReflTransFlags {
-    pub const UNSET: Self = Self(0);
-    pub const REFLECTION: Self = Self(1);
-    pub const TRANSMISSION: Self = Self(1 << 2);
+    pub const UNSET: Self = Self { _flg: 0 };
+    pub const REFLECTION: Self = Self { _flg: 1 };
+    pub const TRANSMISSION: Self = Self { _flg: 1 << 2 };
 }
 
 impl BitAnd for BxDFFlags {

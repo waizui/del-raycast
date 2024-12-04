@@ -15,6 +15,7 @@ pub fn hoge(scene: &pbrt4::Scene) -> (f32, [f32; 16], (usize, usize)) {
     (fov, transform, img_shape)
 }
 
+#[allow(clippy::type_complexity)]
 pub fn trimesh3_from_shape_entity(
     shape_entity: &pbrt4::ShapeEntity,
     path_file: &str,
@@ -27,13 +28,13 @@ pub fn trimesh3_from_shape_entity(
             ..
         } => {
             let tri2vtx = indices.iter().map(|&v| v as usize).collect::<Vec<usize>>();
-            return Some((
+            Some((
                 shape_entity.material_index.unwrap(),
                 shape_entity.area_light_index,
                 tri2vtx,
                 positions.to_vec(),
                 normals.to_vec(),
-            ));
+            ))
         }
         pbrt4::types::Shape::PlyMesh { filename } => {
             let filename = filename.strip_suffix("\"").unwrap().to_string();
@@ -72,19 +73,18 @@ pub fn trimesh3_from_shape_entity(
                 }
             }
             // TODO: parse normals for .ply
-            return Some((
+            Some((
                 shape_entity.material_index.unwrap(),
                 shape_entity.area_light_index,
                 tri2vtx,
                 vtx2xyz,
                 vec![],
-            ));
+            ))
         }
         _ => {
             panic!();
         }
     }
-    None
 }
 
 pub fn spectrum_from_light_entity(area_light_entity: &pbrt4::types::AreaLight) -> Option<[f32; 3]> {

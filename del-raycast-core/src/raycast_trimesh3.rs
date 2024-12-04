@@ -139,6 +139,7 @@ pub fn render_normalmap_from_pix2tri(
     img
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_texture_from_pix2tri<Index>(
     img_shape: (usize, usize),
     transform_ndc2world: &[f32; 16],
