@@ -97,5 +97,108 @@ fn main() -> anyhow::Result<()> {
         let enc = HdrEncoder::new(file);
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
     }
+
+    // material sampling
+    {
+        use slice_of_array::SliceArrayExt;
+        use std::f32::consts::PI;
+
+        let samples = 16;
+        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+            let ih = i_pix / img_shape.0;
+            let iw = i_pix % img_shape.0;
+
+            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                iw,
+                ih,
+                img_shape,
+                camera_fov,
+                transform_cam_lcl2glbl,
+            );
+            let sphere_cntr = [0.15, 0.50, 0.16];
+            let t = del_geo_nalgebra::sphere::intersection_ray(
+                &nalgebra::Vector3::<f32>::from(sphere_cntr),
+                0.7,
+                &nalgebra::Vector3::<f32>::from(ray_org),
+                &nalgebra::Vector3::<f32>::from(ray_dir),
+            );
+            if let Some(t) = t {
+                use del_geo_core::vec3;
+                let pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
+                let nrm = vec3::sub(&pos, &sphere_cntr);
+                let hit_nrm = vec3::normalized(&nrm);
+                let mut radiance = [0.; 3];
+
+                use rand::Rng;
+                use rand::SeedableRng;
+                let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
+
+                for _isample in 0..samples {
+                    let refl_dir: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
+                        &nalgebra::Vector3::<f32>::new(hit_nrm[0], hit_nrm[1], hit_nrm[2]),
+                        &[rng.gen::<f32>(), rng.gen::<f32>()],
+                    )
+                    .into();
+                    let refl = vec3::normalized(&refl_dir);
+                    let env =
+                        del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &refl)
+                            .unwrap();
+
+                    let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
+                    let i_u = (tex_coord[0] * tex_shape.0 as f32).floor() as usize;
+                    let i_v = (tex_coord[1] * tex_shape.1 as f32).floor() as usize;
+                    let i_u = i_u.clamp(0, tex_shape.0 - 1);
+                    let i_v = i_v.clamp(0, tex_shape.1 - 1);
+                    let i_tex = i_v * tex_shape.0 + i_u;
+
+                    let costheta = del_geo_core::vec3::dot(&hit_nrm, &refl);
+                    if costheta < 0. {
+                        continue;
+                    }
+
+                    let mut hit_radi = tex_data[i_tex..i_tex + 3].to_array();
+                    vec3::scale(&mut hit_radi, costheta / PI);
+                    radiance = vec3::add(&radiance, &hit_radi);
+                }
+
+                del_geo_core::vec3::scale(&mut radiance, 1. / (samples as f32));
+
+                pix.0[0] = radiance[0];
+                pix.0[1] = radiance[1];
+                pix.0[2] = radiance[2];
+            } else {
+                let nrm = del_geo_core::vec3::normalized(&ray_dir);
+                let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
+                    .unwrap();
+                // let tex_coord = unit2_from_uvec3_octahedra(&[-env[0], env[1], -env[2]]);
+                let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
+                let i_u = (tex_coord[0] * tex_shape.0 as f32).floor() as usize;
+                let i_v = (tex_coord[1] * tex_shape.1 as f32).floor() as usize;
+                let i_u = i_u.clamp(0, tex_shape.0 - 1);
+                let i_v = i_v.clamp(0, tex_shape.1 - 1);
+                let i_tex = i_v * tex_shape.0 + i_u;
+                pix.0[0] = tex_data[i_tex * 3];
+                pix.0[1] = tex_data[i_tex * 3 + 1];
+                pix.0[2] = tex_data[i_tex * 3 + 2];
+            }
+        };
+
+        let mut img = Vec::<image::Rgb<f32>>::new();
+        img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
+
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
+        use rayon::iter::ParallelIterator;
+
+        img.par_iter_mut()
+            .enumerate()
+            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+
+        let file_ms = std::fs::File::create("target/04_env_light_material_sampling.hdr").unwrap();
+        use image::codecs::hdr::HdrEncoder;
+        let enc = HdrEncoder::new(file_ms);
+        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+    }
+
     Ok(())
 }
