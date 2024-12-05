@@ -143,7 +143,8 @@ fn main() -> anyhow::Result<()> {
                     let env =
                         del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &refl)
                             .unwrap();
-
+                    
+                    // this function flips y component, suspicious
                     let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
                     let i_u = (tex_coord[0] * tex_shape.0 as f32).floor() as usize;
                     let i_v = (tex_coord[1] * tex_shape.1 as f32).floor() as usize;
