@@ -1,7 +1,3 @@
-use itertools::Itertools;
-use rand::Rng;
-use rayon::iter::IntoParallelRefMutIterator;
-
 #[derive(Debug, Clone, Default)]
 struct TriangleMesh {
     vtx2xyz: Vec<f32>,
@@ -214,6 +210,7 @@ fn main() -> anyhow::Result<()> {
     }
     let transform_cam_lcl2glbl =
         del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
+    use itertools::Itertools;
     // Get the area light source
     let i_trimesh_light = trimeshs
         .iter()
@@ -445,6 +442,7 @@ fn main() -> anyhow::Result<()> {
         };
         let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
         use rayon::iter::ParallelIterator;
         img.par_iter_mut()
             .enumerate()
@@ -584,6 +582,7 @@ fn main() -> anyhow::Result<()> {
         };
         let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
         use rayon::iter::ParallelIterator;
         img.par_iter_mut()
             .enumerate()
@@ -623,6 +622,7 @@ fn main() -> anyhow::Result<()> {
         };
         let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
         use rayon::iter::ParallelIterator;
         img.par_iter_mut()
             .enumerate()
@@ -720,6 +720,7 @@ fn main() -> anyhow::Result<()> {
         };
         let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
         use rayon::iter::ParallelIterator;
         img.par_iter_mut()
             .enumerate()
