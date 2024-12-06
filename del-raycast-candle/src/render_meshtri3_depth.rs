@@ -307,8 +307,8 @@ pub fn render(
         img_shape: *img_shape,
         transform_nbc2world: *transform_ndc2world,
     };
-    let res = vtx2xyz.apply_op1(render);
+    vtx2xyz.apply_op1(render)
     // println!("      time for render depth: {:.2?}", time0.elapsed());
     // let time0 = Instant::now();
-    res
+    // res
 }
