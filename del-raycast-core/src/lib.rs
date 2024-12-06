@@ -1,4 +1,5 @@
 pub mod bxdf;
+pub mod cam2;
 pub mod cam3;
 pub mod cam_pbrt;
 pub mod io_pfm;

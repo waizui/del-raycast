@@ -2,6 +2,7 @@
 members = [
     "del-raycast-core",
     "del-raycast-cudarc",
+    "del-raycast-candle",
     "examples-gl",
     "examples-cudarc-gl"
 ]
@@ -12,6 +13,8 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 description = "hogehoge"
+authors = ["Nobuyuki Umetani <n.umetani@gmail.com>"]
+repository = "https://github.com/nobuyuki83/del-raycast/"
 license = "MIT"
 
 [workspace.dependencies.cudarc]
@@ -26,7 +29,7 @@ nalgebra = "0.33.2"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 num-traits = "0.2.19"
-image = "0.25.5"
+image = { version = "0.25.5", features = ["png"], default-features = false }
 itertools = "0.13.0"
 anyhow = "1.0.93"
 ply-rs = "0.1.3"
@@ -60,6 +63,8 @@ del-geo-core = { git = "https://github.com/nobuyuki83/del-geo.git"}
 del-geo-nalgebra = { git = "https://github.com/nobuyuki83/del-geo.git"}
 del-msh-core = { git = "https://github.com/nobuyuki83/del-msh.git" }
 del-msh-cudarc = { git = "https://github.com/nobuyuki83/del-msh.git", features = ["cuda"]}
+del-fem-ls = {git="https://github.com/nobuyuki83/del-fem.git"}
+del-fem-core = {git="https://github.com/nobuyuki83/del-fem.git"}
 del-gl-core = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-gl-winit-glutin = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-cudarc = {git="https://github.com/nobuyuki83/del-cudarc.git"}

@@ -1,0 +1,29 @@
+[package]
+name = "del-raycast-candle"
+description = "hgoehoge"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+cuda = ["candle-core/cuda", "del-raycast-cudarc/cuda"]
+
+[dependencies]
+rand.workspace = true
+anyhow.workspace = true
+nalgebra.workspace = true
+del-geo-core.workspace = true
+del-geo-nalgebra.workspace = true
+del-raycast-core.workspace = true
+del-raycast-cudarc.workspace = true
+del-canvas-image.workspace = true
+del-msh-core.workspace = true
+del-fem-ls.workspace = true
+del-fem-core.workspace = true
+candle-core = { git = "https://github.com/huggingface/candle.git"}
+del-msh-candle = { git = "https://github.com/nobuyuki83/del-msh.git" }
+
+[dev-dependencies]
+image.workspace = true
