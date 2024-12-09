@@ -127,7 +127,7 @@ pub fn render_normalmap_from_pix2tri(
             if i_tri == usize::MAX {
                 continue;
             }
-            let tri = del_msh_core::trimesh3::to_tri3(i_tri, tri2vtx, vtx2xyz);
+            let tri = del_msh_core::trimesh3::to_tri3(tri2vtx, vtx2xyz, i_tri);
             let nrm = tri.normal();
             let nrm = del_geo_core::mat4_col_major::transform_vector(cam_modelviewd, &nrm);
             let unrm = del_geo_core::vec3::normalized(&nrm);
@@ -165,7 +165,7 @@ where
                 continue;
             }
             let i_tri: usize = i_tri.as_();
-            let tri = del_msh_core::trimesh3::to_tri3(i_tri, tri2vtx, vtx2xyz);
+            let tri = del_msh_core::trimesh3::to_tri3(tri2vtx, vtx2xyz, i_tri);
             let Some(a) = tri.intersection_against_ray(&ray_org, &ray_dir) else {
                 continue;
             };

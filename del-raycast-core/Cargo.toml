@@ -16,12 +16,14 @@ arrayref.workspace = true
 slice-of-array.workspace = true
 rayon.workspace = true
 
+
 # for development
 pbrt4.workspace = true
 del-geo-nalgebra.workspace = true
 del-msh-core.workspace = true
 del-geo-core.workspace = true
 del-canvas-image.workspace = true
+del-canvas-cpu.workspace = true
 
 # for git push
 # pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }

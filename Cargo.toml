@@ -54,6 +54,7 @@ del-raycast-cudarc-kernel = {  path = "del-raycast-cudarc-kernel" }
 # del-geo-nalgebra = { path="../del-geo/del-geo-nalgebra" }
 # del-msh-core = { path = "../del-msh/del-msh-core" }
 # del-canvas-image = {path = "../del-canvas/del-canvas-image"}
+# del-canvas-cpu = {path = "../del-canvas/del-canvas-cpu"}
 # del-gl-core = { path = "../del-gl/del-gl-core"}
 # del-gl-winit-glutin = { path = "../del-gl/del-gl-winit-glutin"}
 
@@ -69,3 +70,4 @@ del-gl-core = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-gl-winit-glutin = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-cudarc = {git="https://github.com/nobuyuki83/del-cudarc.git"}
 del-canvas-image = {git="https://github.com/nobuyuki83/del-canvas.git"}
+del-canvas-cpu = {git="https://github.com/nobuyuki83/del-canvas.git"}

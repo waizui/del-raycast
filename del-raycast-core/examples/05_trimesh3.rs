@@ -1,7 +1,7 @@
 fn main() -> anyhow::Result<()> {
     let (tri2vtx, vtx2xyz, vtx2uv) = {
         let mut obj = del_msh_core::io_obj::WavefrontObj::<usize, f32>::new();
-        obj.load("asset/spot_triangulated.obj")?;
+        obj.load("asset/spot/spot_triangulated.obj")?;
         obj.unified_xyz_uv_as_trimesh()
     };
     let img_shape = {
@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()> {
     {
         // render texture
         let (tex_data, tex_shape, bitdepth) =
-            del_canvas_image::load_image_as_float_array("asset/spot_texture.png")?;
+            del_canvas_image::load_image_as_float_array("asset/spot/spot_texture.png")?;
         assert_eq!(bitdepth, 3);
         let img_data = del_raycast_core::raycast_trimesh3::render_texture_from_pix2tri(
             img_shape,
