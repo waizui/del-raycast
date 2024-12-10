@@ -1,3 +1,7 @@
+use del_msh_core::io_svg::svg_outline_path_from_shape;
+use image::Pixel;
+use rayon::string;
+
 #[derive(Debug, Clone, Default)]
 struct TriangleMesh {
     vtx2xyz: Vec<f32>,
@@ -183,6 +187,41 @@ where
     del_geo_core::vec3::add(&tmp0, &emittance1)
 }
 
+fn mse_rgb_error_map(
+    target_file: String,
+    ground_truth: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+    img: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+) {
+    let mut error =
+        vec![image::Rgb([0f32; 3]); (ground_truth.width() * ground_truth.height()) as usize];
+    let cal_pixel_mse = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+        let ih = i_pix / ground_truth.width() as usize;
+        let iw = i_pix % ground_truth.width() as usize;
+        let truth = ground_truth.get_pixel(iw as u32, ih as u32).0;
+        let output = img[(iw as u32, ih as u32)].0;
+        // dbg!(truth, output);
+        let mse = ((truth[0] as f32 - output[0] as f32) / 256.0).powf(2.0)
+            + ((truth[1] as f32 - output[1] as f32) / 256.0).powf(2.0)
+            + ((truth[2] as f32 - output[2] as f32) / 256.0).powf(2.0);
+        let err = (mse as f32).sqrt() / (3.0_f32).sqrt();
+
+        *pix = image::Rgb([err; 3]);
+    };
+    use rayon::prelude::*;
+    error
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i_pix, pix)| cal_pixel_mse(i_pix, pix));
+    use image::codecs::hdr::HdrEncoder;
+    let file = std::fs::File::create(target_file).unwrap();
+    let enc = HdrEncoder::new(file);
+    let _ = enc.encode(
+        &error,
+        ground_truth.width() as usize,
+        ground_truth.height() as usize,
+    );
+}
+
 fn main() -> anyhow::Result<()> {
     let pbrt_file_path = "asset/cornell-box/scene-v4.pbrt";
     let (trimeshs, camera_fov, transform_cam_glbl2lcl, img_shape) =
@@ -224,6 +263,10 @@ fn main() -> anyhow::Result<()> {
         3,
     );
     let &area_light = tri2cumsumarea.last().unwrap();
+    let ground_truth = image::open("asset/cornell-box/TungstenRender.png")
+        .unwrap()
+        .to_rgb8();
+    assert!(ground_truth.dimensions() == (img_shape.0 as u32, img_shape.1 as u32));
     {
         // computing depth image
         let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
@@ -592,6 +635,14 @@ fn main() -> anyhow::Result<()> {
         use image::codecs::hdr::HdrEncoder;
         let enc = HdrEncoder::new(file2);
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
+        let output = image::open("target/02_cornell_box_material_light_sampling.hdr")
+            .unwrap()
+            .to_rgb8();
+        mse_rgb_error_map(
+            "target/MIS_error_map.hdr".to_string(),
+            &ground_truth,
+            &output,
+        );
     }
     {
         // path tracing sampling material
@@ -729,6 +780,14 @@ fn main() -> anyhow::Result<()> {
         use image::codecs::hdr::HdrEncoder;
         let enc = HdrEncoder::new(file2);
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
+        let output = image::open("target/02_cornell_box_pt_nee_material.hdr")
+            .unwrap()
+            .to_rgb8();
+        mse_rgb_error_map(
+            "target/NEE_error_map.hdr".to_string(),
+            &ground_truth,
+            &output,
+        );
     }
     Ok(())
 }
