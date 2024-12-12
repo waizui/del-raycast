@@ -189,5 +189,145 @@ fn main() -> anyhow::Result<()> {
         let _ = enc.encode(&img, img_shape.0, img_shape.1);
     }
 
+    {
+        // light sampling
+
+        use del_raycast_core::env_map::*;
+        use image::Pixel;
+
+        let samples = 64;
+        let img: Vec<image::Rgb<f32>> = tex_data
+            .chunks(3)
+            .map(|rgb| *image::Rgb::<f32>::from_slice(rgb))
+            .collect();
+
+        let texw = tex_shape.0;
+        let texh = tex_shape.1;
+
+        let grayscale = calc_grayscale(&img, texw, texh);
+        let itgr = calc_integral_over_grayscale(&grayscale, texw, texh);
+        let (marginal_map, conditional_map) = calc_inverse_cdf_map(&grayscale, itgr, texw, texh);
+
+        // uncomment to debug inverse cdf sampling
+        /*
+        let mut towrite: Vec<image::Rgb<f32>> = tex_data
+            .chunks(3)
+            .map(|rgb| *image::Rgb::<f32>::from_slice(rgb))
+            .collect();
+
+        for _isample in 0..1024 * 1024 {
+            let r_x: f32 = del_raycast_core::sampling::radical_inverse(_isample, 2);
+            let r_y: f32 = del_raycast_core::sampling::radical_inverse(_isample, 3);
+
+            let sampley = marginal_map[tex2pixel(r_y, texh)][0];
+            let samplex =
+                conditional_map[tex2pixel(r_x, texw) + tex2pixel(sampley, texh) * texw][0];
+
+            let pixelx = tex2pixel(samplex, texw);
+            let pixely = tex2pixel(sampley, texh);
+
+            towrite[pixely * texw + pixelx] = image::Rgb([1., 0., 0.]);
+        }
+
+        let file_ms = std::fs::File::create("target/04_env_light_debug.hdr").unwrap();
+        let enc = HdrEncoder::new(file_ms);
+        let _ = enc.encode(&towrite, texw, texh);
+        return Ok(());
+        */
+
+        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+            let ih = i_pix / img_shape.0;
+            let iw = i_pix % img_shape.0;
+
+            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                iw,
+                ih,
+                img_shape,
+                camera_fov,
+                transform_cam_lcl2glbl,
+            );
+            let t = del_geo_nalgebra::sphere::intersection_ray(
+                &nalgebra::Vector3::<f32>::from(sphere_cntr),
+                0.7,
+                &nalgebra::Vector3::<f32>::from(ray_org),
+                &nalgebra::Vector3::<f32>::from(ray_dir),
+            );
+            if let Some(t) = t {
+                use del_geo_core::vec3;
+                let hit_pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
+                let hit_nrm = vec3::sub(&hit_pos, &sphere_cntr);
+                let hit_nrm = vec3::normalized(&hit_nrm);
+
+                let mut result = [0.; 3];
+                for _isample in 0..samples {
+                    let r_x: f32 = del_raycast_core::sampling::radical_inverse(_isample, 2);
+                    let r_y: f32 = del_raycast_core::sampling::radical_inverse(_isample, 3);
+
+                    let sampley = marginal_map[tex2pixel(r_y, texh)][0];
+                    let samplex =
+                        conditional_map[tex2pixel(r_x, texw) + tex2pixel(sampley, texh) * texw][0];
+
+                    let pixelx = tex2pixel(samplex, texw);
+                    let pixely = tex2pixel(sampley, texh);
+
+                    let sample_ray = envmap2unitsphere(&[samplex, sampley]);
+
+                    let costheta = del_geo_core::vec3::dot(&hit_nrm, &sample_ray);
+
+                    // joint probability of point (samplex,sampley)
+                    let pdf = grayscale[pixely * texw + pixelx][0] / itgr;
+
+                    if costheta <= 0. || pdf <= 0. {
+                        continue;
+                    }
+
+                    // (1/pi) * (radiance* costhta*sinteta * 4pi)/pdf = 4*radiance*costheta*sintheta/pdf
+
+                    let mut radiance = img[pixely * texw + pixelx].0;
+
+                    let sintheta = (1. - costheta * costheta).sqrt();
+
+                    del_geo_core::vec3::scale(&mut radiance, costheta);
+                    del_geo_core::vec3::scale(&mut radiance, sintheta);
+                    del_geo_core::vec3::scale(&mut radiance, 1. / pdf);
+
+                    result = del_geo_core::vec3::add(&result, &radiance);
+                }
+
+                del_geo_core::vec3::scale(&mut result, 4. / samples as f32);
+                pix.0 = result;
+            } else {
+                let nrm = del_geo_core::vec3::normalized(&ray_dir);
+                let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
+                    .unwrap();
+                let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
+                pix.0 = del_canvas_image::texture::nearest_integer_center::<3>(
+                    &[
+                        tex_coord[0] * tex_shape.0 as f32,
+                        tex_coord[1] * tex_shape.1 as f32,
+                    ],
+                    &tex_shape,
+                    &tex_data,
+                );
+            }
+        };
+
+        let mut img = Vec::<image::Rgb<f32>>::new();
+        img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
+
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
+        use rayon::iter::ParallelIterator;
+
+        img.par_iter_mut()
+            .enumerate()
+            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+
+        let file_ms = std::fs::File::create("target/04_env_light_sampling.hdr").unwrap();
+        use image::codecs::hdr::HdrEncoder;
+        let enc = HdrEncoder::new(file_ms);
+        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+    }
+
     Ok(())
 }
