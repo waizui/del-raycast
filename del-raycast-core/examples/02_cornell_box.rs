@@ -1,5 +1,6 @@
 use del_msh_core::io_svg::svg_outline_path_from_shape;
 use image::Pixel;
+use itertools::Itertools;
 use rayon::string;
 
 #[derive(Debug, Clone, Default)]
@@ -189,65 +190,45 @@ where
 
 fn mse_rgb_error_map(
     target_file: String,
-    ground_truth: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
-    img: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+    img_shape: (usize, usize),
+    ground_truth: &[f32],
+    img: &[f32],
 ) {
-    let mut error =
-        vec![image::Rgb([0f32; 3]); (ground_truth.width() * ground_truth.height()) as usize];
-    let cal_pixel_mse = |i_pix: usize, pix: &mut image::Rgb<f32>| {
-        let ih = i_pix / ground_truth.width() as usize;
-        let iw = i_pix % ground_truth.width() as usize;
-        let truth = ground_truth.get_pixel(iw as u32, ih as u32).0;
-        let output = img[(iw as u32, ih as u32)].0;
-        // dbg!(truth, output);
-        let mse = ((truth[0] as f32 - output[0] as f32) / 256.0).powf(2.0)
-            + ((truth[1] as f32 - output[1] as f32) / 256.0).powf(2.0)
-            + ((truth[2] as f32 - output[2] as f32) / 256.0).powf(2.0);
-        let err = (mse as f32).sqrt() / (3.0_f32).sqrt();
-
-        *pix = image::Rgb([err; 3]);
+    assert_eq!(img.len(), img_shape.0 * img_shape.1 * 3);
+    assert_eq!(ground_truth.len(), img_shape.0 * img_shape.1 * 3);
+    let err = |a: &[f32], b: &[f32]| -> image::Rgb<f32> {
+        let sq = (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2);
+        image::Rgb([sq; 3])
     };
-    use rayon::prelude::*;
-    error
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(i_pix, pix)| cal_pixel_mse(i_pix, pix));
+    let img_error: Vec<image::Rgb<f32>> = img
+        .chunks(3)
+        .zip(ground_truth.chunks(3))
+        .map(|(a, b)| err(a, b))
+        .collect();
     use image::codecs::hdr::HdrEncoder;
     let file = std::fs::File::create(target_file).unwrap();
     let enc = HdrEncoder::new(file);
-    let _ = enc.encode(
-        &error,
-        ground_truth.width() as usize,
-        ground_truth.height() as usize,
-    );
+    let _ = enc.encode(&img_error, img_shape.0, img_shape.1);
 }
 
-fn rmse_error(
-    ground_truth: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
-    img: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
-) -> f32 {
-    let mut up = 0.0;
-    let mut down = 0.0;
-    let mut cal_pixel_mse = |i_pix: usize| {
-        let ih = i_pix / ground_truth.width() as usize;
-        let iw = i_pix % ground_truth.width() as usize;
-        let truth = ground_truth.get_pixel(iw as u32, ih as u32).0;
-        let output = img[(iw as u32, ih as u32)].0;
-        // dbg!(truth, output);
-        let mse = ((truth[0] as f32 - output[0] as f32) / 256.0).powf(2.0)
-            + ((truth[1] as f32 - output[1] as f32) / 256.0).powf(2.0)
-            + ((truth[2] as f32 - output[2] as f32) / 256.0).powf(2.0);
-        let norm =
-            (truth[0] as f32).powf(2.0) + (truth[1] as f32).powf(2.0) + (truth[2] as f32).powf(2.0);
-        up += mse;
-        down += norm;
-    };
-    for ih in 0..ground_truth.height() as usize {
-        for iw in 0..ground_truth.width() as usize {
-            cal_pixel_mse(ih * ground_truth.width() as usize + iw);
-        }
-    }
+fn rmse_error(gt: &[f32], rhs: &[f32]) -> f32 {
+    let up: f32 = gt
+        .iter()
+        .zip(rhs.iter())
+        .map(|(&l, &r)| (l - r) * (l - r))
+        .sum();
+    let down: f32 = gt.iter().map(|&v| v * v).sum();
     up / down
+}
+
+fn write_hdr_file(path_output: String, img_shape: (usize, usize), img: &[f32]) {
+    // write output
+    let file1 = std::fs::File::create(path_output.clone()).unwrap();
+    use image::codecs::hdr::HdrEncoder;
+    let enc = HdrEncoder::new(file1);
+    let img: &[image::Rgb<f32>] =
+        unsafe { std::slice::from_raw_parts(img.as_ptr() as _, img.len() / 3) };
+    let _ = enc.encode(&img, img_shape.0, img_shape.1);
 }
 
 fn main() -> anyhow::Result<()> {
@@ -291,13 +272,13 @@ fn main() -> anyhow::Result<()> {
         3,
     );
     let &area_light = tri2cumsumarea.last().unwrap();
-    let ground_truth = image::open("asset/cornell-box/TungstenRender.png")
+    let img_gt = image::open("asset/cornell-box/TungstenRender.exr")
         .unwrap()
-        .to_rgb8();
-    assert!(ground_truth.dimensions() == (img_shape.0 as u32, img_shape.1 as u32));
+        .to_rgb32f();
+    assert!(img_gt.dimensions() == (img_shape.0 as u32, img_shape.1 as u32));
+    let img_gt = img_gt.to_vec();
     {
         // computing depth image
-        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
             let ih = i_pix / img_shape.0;
             let iw = i_pix % img_shape.0;
@@ -330,18 +311,19 @@ fn main() -> anyhow::Result<()> {
             let v = t_min * 0.05;
             *pix = image::Rgb([v; 3]);
         };
+        let mut img_out = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         use rayon::prelude::*;
-        img.par_iter_mut()
+        img_out
+            .par_iter_mut()
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         use image::codecs::hdr::HdrEncoder;
         let file = std::fs::File::create("target/02_cornell_box_depth.hdr").unwrap();
         let enc = HdrEncoder::new(file);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+        let _ = enc.encode(&img_out, img_shape.0, img_shape.1);
     }
     {
         // computing reflectance image
-        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
             let ih = i_pix / img_shape.0;
             let iw = i_pix % img_shape.0;
@@ -359,20 +341,23 @@ fn main() -> anyhow::Result<()> {
             };
             *pix = image::Rgb(trimeshs[i_trimsh].reflectance);
         };
+        let mut img_out = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
         use rayon::prelude::*;
-        img.par_iter_mut()
+        img_out
+            .par_iter_mut()
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         let file1 = std::fs::File::create("target/02_cornell_box_color.hdr").unwrap();
         use image::codecs::hdr::HdrEncoder;
         let enc = HdrEncoder::new(file1);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+        let _ = enc.encode(&img_out, img_shape.0, img_shape.1);
     }
     println!("---------------------light sampling---------------------");
-    for i in 0..30 {
+    for i in 0..3 {
         // light sampling
-        let num_sample = 8 + 2 * i;
-        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+        let num_sample = 8 + 10 * i;
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            let pix = arrayref::array_mut_ref![pix, 0, 3];
             use rand::Rng;
             use rand::SeedableRng;
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
@@ -393,7 +378,7 @@ fn main() -> anyhow::Result<()> {
                     return;
                 };
                 if trimeshs[i_trimsh_hit].spectrum.is_some() {
-                    *pix = image::Rgb(trimeshs[i_trimsh_hit].spectrum.unwrap().0);
+                    *pix = trimeshs[i_trimsh_hit].spectrum.unwrap().0;
                     return;
                 }
                 use del_geo_core::vec3;
@@ -434,32 +419,35 @@ fn main() -> anyhow::Result<()> {
                 let tmp = cos_theta_hit * cos_theta_light / (r2 * pdf * num_sample as f32);
                 l_o = vec3::axpy(tmp, &li_r, &l_o);
             }
-            *pix = image::Rgb(l_o);
+            *pix = l_o;
         };
-        use rayon::prelude::*;
-        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
-        img.par_iter_mut()
-            .enumerate()
-            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        let target_file =
-            "target/02_cornell_box_light_sampling".to_string() + &(&i + 1).to_string() + ".hdr";
-        let file1 = std::fs::File::create(target_file.clone()).unwrap();
-        use image::codecs::hdr::HdrEncoder;
-        let enc = HdrEncoder::new(file1);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
-        let output = image::open(&target_file).unwrap().to_rgb8();
-        let target_file = "target/02_cornell_box_light_sampling".to_string()
-            + &(&i + 1).to_string()
-            + "_error_map.hdr";
-        mse_rgb_error_map(target_file, &ground_truth, &output);
-        let err = rmse_error(&ground_truth, &output);
+        let img_out = {
+            let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
+            use rayon::prelude::*;
+            img_out
+                .par_chunks_mut(3)
+                .enumerate()
+                .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+            img_out
+        };
+        write_hdr_file(
+            format!("target/02_cornell_box_light_sampling_{}.hdr", num_sample),
+            img_shape,
+            &img_out,
+        );
+        let path_error_map = format!(
+            "target/02_cornell_box_light_sampling_{}_error_map.hdr",
+            num_sample
+        );
+        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        let err = rmse_error(&img_gt, &img_out);
         println!("num_sample: {}, mse: {}", num_sample, err);
     }
     println!("---------------------material sampling---------------------");
-    for i in 0..30 {
+    for i in 0..3 {
         // material sampling
-        let num_sample = 8 + 2 * i;
-        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+        let num_sample = 8 + 10 * i;
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             use rand::Rng;
             use rand::SeedableRng;
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
@@ -518,42 +506,43 @@ fn main() -> anyhow::Result<()> {
                 l_o[1] += spectrum2[1] * trimeshs[i_trimsh1].reflectance[1];
                 l_o[2] += spectrum2[2] * trimeshs[i_trimsh1].reflectance[2];
             }
-            (*pix).0[0] = l_o[0] / num_sample as f32;
-            (*pix).0[1] = l_o[1] / num_sample as f32;
-            (*pix).0[2] = l_o[2] / num_sample as f32;
+            (*pix)[0] = l_o[0] / num_sample as f32;
+            (*pix)[1] = l_o[1] / num_sample as f32;
+            (*pix)[2] = l_o[2] / num_sample as f32;
         };
-        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
-        use rayon::iter::IndexedParallelIterator;
-        use rayon::iter::IntoParallelRefMutIterator;
-        use rayon::iter::ParallelIterator;
-        img.par_iter_mut()
-            .enumerate()
-            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        let target_file =
-            "target/02_cornell_box_material_sampling".to_string() + &(&i + 1).to_string() + ".hdr";
-        let file2 = std::fs::File::create(&target_file).unwrap();
-        use image::codecs::hdr::HdrEncoder;
-        let enc = HdrEncoder::new(file2);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
-        let output = image::open(target_file).unwrap().to_rgb8();
-        let target_file = "target/02_cornell_box_pt_nee_material_error_map".to_string()
-            + &(&i + 1).to_string()
-            + ".hdr";
-        mse_rgb_error_map(target_file, &ground_truth, &output);
-        let err = rmse_error(&ground_truth, &output);
-        println!(
-            "num_sample: {}, mse: {}",
-            num_sample, err
+        let img_out = {
+            let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
+            use rayon::iter::IndexedParallelIterator;
+            use rayon::iter::ParallelIterator;
+            use rayon::prelude::ParallelSliceMut;
+            img_out
+                .par_chunks_mut(3)
+                .enumerate()
+                .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+            img_out
+        };
+        write_hdr_file(
+            format!("target/02_cornell_box_material_sampling_{}.hdr", num_sample),
+            img_shape,
+            &img_out,
         );
+        let path_error_map = format!(
+            "target/02_cornell_box_material_sampling_{}_error_map.hdr",
+            num_sample
+        );
+        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        let err = rmse_error(&img_gt, &img_out);
+        println!("num_sample: {}, mse: {}", num_sample, err);
     }
     println!("---------------------MIS sampling---------------------");
-    for i in 0..30 {
+    for i in 0..3 {
         // Multiple importance sampling on both light and BSDF, use balance heuristic to get the weight for different sampling strategies
-        let num_sample_light = 8 + 2 * i;
-        let num_sample_bsdf = 8 + 2 * i;
+        let num_sample_light = 8 + 10 * i;
+        let num_sample_bsdf = 8 + 10 * i;
         let c_light = num_sample_light as f32 / (num_sample_light + num_sample_bsdf) as f32;
         let c_bsdf = num_sample_bsdf as f32 / (num_sample_light + num_sample_bsdf) as f32;
-        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            let pix = arrayref::array_mut_ref![pix, 0, 3];
             use del_geo_core::vec3;
             use rand::Rng;
             use rand::SeedableRng;
@@ -671,41 +660,47 @@ fn main() -> anyhow::Result<()> {
                 l_o[1] += spectrum2[1] * trimeshs[i_trimsh1].reflectance[1];
                 l_o[2] += spectrum2[2] * trimeshs[i_trimsh1].reflectance[2];
             }
-            (*pix).0[0] = l_o[0] / (num_sample_light + num_sample_bsdf) as f32;
-            (*pix).0[1] = l_o[1] / (num_sample_light + num_sample_bsdf) as f32;
-            (*pix).0[2] = l_o[2] / (num_sample_light + num_sample_bsdf) as f32;
+            (*pix)[0] = l_o[0] / (num_sample_light + num_sample_bsdf) as f32;
+            (*pix)[1] = l_o[1] / (num_sample_light + num_sample_bsdf) as f32;
+            (*pix)[2] = l_o[2] / (num_sample_light + num_sample_bsdf) as f32;
         };
-        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
-        use rayon::iter::IndexedParallelIterator;
-        use rayon::iter::IntoParallelRefMutIterator;
-        use rayon::iter::ParallelIterator;
-        img.par_iter_mut()
-            .enumerate()
-            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        let target_file = format!("target/02_cornell_box_mis_{}.hdr", i);
-        let file2 = std::fs::File::create(&target_file).unwrap();
-        use image::codecs::hdr::HdrEncoder;
-        let enc = HdrEncoder::new(file2);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
-        let output = image::open(target_file).unwrap().to_rgb8();
-        let target_file = format!("target/MIS_error_map_{}.hdr", i);
-        mse_rgb_error_map(
-            target_file,
-            &ground_truth,
-            &output,
+        let img_out = {
+            let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
+            use rayon::iter::IndexedParallelIterator;
+            use rayon::iter::ParallelIterator;
+            use rayon::prelude::ParallelSliceMut;
+            img_out
+                .par_chunks_mut(3)
+                .enumerate()
+                .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+            img_out
+        };
+        write_hdr_file(
+            format!(
+                "target/02_cornell_box_mis_{}.hdr",
+                num_sample_bsdf + num_sample_light
+            ),
+            img_shape,
+            &img_out,
         );
-        let err = rmse_error(&ground_truth, &output);
+        let path_error_map = format!(
+            "target/02_cornell_box_mis_{}_error_map.hdr",
+            num_sample_bsdf + num_sample_light
+        );
+        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        let err = rmse_error(&img_gt, &img_out);
         println!(
-            "num_sample_light: {}, num_sample_bsdf: {}, mse: {}",
-            num_sample_light, num_sample_bsdf, err
+            "num_sample: {}, mse: {}",
+            num_sample_bsdf + num_sample_light,
+            err
         );
     }
     println!("---------------------path tracer---------------------");
-    for i in 0..30 {
+    for i in 0..3 {
         // path tracing sampling material
-        let num_sample = 8 + 2 * i;
-        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
-            use rand::Rng;
+        let num_sample = 8 + 10 * i;
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            let pix = arrayref::array_mut_ref![pix, 0, 3];
             use rand::SeedableRng;
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let ih = i_pix / img_shape.0;
@@ -724,39 +719,40 @@ fn main() -> anyhow::Result<()> {
                 l_o[1] += rad[1];
                 l_o[2] += rad[2];
             }
-            (*pix).0[0] = l_o[0] / num_sample as f32;
-            (*pix).0[1] = l_o[1] / num_sample as f32;
-            (*pix).0[2] = l_o[2] / num_sample as f32;
+            (*pix)[0] = l_o[0] / num_sample as f32;
+            (*pix)[1] = l_o[1] / num_sample as f32;
+            (*pix)[2] = l_o[2] / num_sample as f32;
         };
-        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
-        use rayon::iter::IndexedParallelIterator;
-        use rayon::iter::IntoParallelRefMutIterator;
-        use rayon::iter::ParallelIterator;
-        img.par_iter_mut()
-            .enumerate()
-            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        let target_file =
-            "target/02_cornell_box_pt_material".to_string() + &(&i + 1).to_string() + ".hdr";
-        let file2 = std::fs::File::create(&target_file).unwrap();
-        use image::codecs::hdr::HdrEncoder;
-        let enc = HdrEncoder::new(file2);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
-        let output = image::open(&target_file).unwrap().to_rgb8();
-        let target_file = "target/02_cornell_box_pt_material".to_string()
-            + &(&i + 1).to_string()
-            + "_error_map.hdr";
-        mse_rgb_error_map(target_file, &ground_truth, &output);
-        let err = rmse_error(&ground_truth, &output);
+        let img_out = {
+            let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
+            use rayon::iter::IndexedParallelIterator;
+            use rayon::iter::ParallelIterator;
+            use rayon::prelude::ParallelSliceMut;
+            img_out
+                .par_chunks_mut(3)
+                .enumerate()
+                .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+            img_out
+        };
+        write_hdr_file(
+            format!("target/02_cornell_box_pt_{}.hdr", num_sample),
+            img_shape,
+            &img_out,
+        );
+        let path_error_map = format!("target/02_cornell_box_pt_{}_error_map.hdr", num_sample);
+        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        let err = rmse_error(&img_gt, &img_out);
         println!("num_sample: {}, mse: {}", num_sample, err);
     }
     println!("---------------------NEE tracer---------------------");
-    for i in 0..30 {
+    for i in 0..3 {
         // path tracing next event estimation
         let num_sample_light = 8 + 2 * i;
         let num_sample_material = 8 + 2 * i;
         let c_light = num_sample_light as f32 / (num_sample_light + num_sample_material) as f32;
         let c_bsdf = num_sample_material as f32 / (num_sample_light + num_sample_material) as f32;
-        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            let pix = arrayref::array_mut_ref!(pix, 0, 3);
             use rand::Rng;
             use rand::SeedableRng;
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
@@ -791,7 +787,7 @@ fn main() -> anyhow::Result<()> {
                     return;
                 };
                 if trimeshs[i_trimsh_hit].spectrum.is_some() {
-                    *pix = image::Rgb(trimeshs[i_trimsh_hit].spectrum.unwrap().0);
+                    *pix = trimeshs[i_trimsh_hit].spectrum.unwrap().0;
                     return;
                 }
                 use del_geo_core::vec3;
@@ -832,33 +828,30 @@ fn main() -> anyhow::Result<()> {
                 let tmp = cos_theta_hit * cos_theta_light / (r2 * pdf * num_sample_light as f32);
                 l_light = vec3::axpy(tmp, &li_r, &l_light);
             }
-            (*pix).0[0] = c_light * l_light[0] + c_bsdf * l_brdf[0];
-            (*pix).0[1] = c_light * l_light[1] + c_bsdf * l_brdf[1];
-            (*pix).0[2] = c_light * l_light[2] + c_bsdf * l_brdf[2];
+            (*pix)[0] = c_light * l_light[0] + c_bsdf * l_brdf[0];
+            (*pix)[1] = c_light * l_light[1] + c_bsdf * l_brdf[1];
+            (*pix)[2] = c_light * l_light[2] + c_bsdf * l_brdf[2];
         };
-        let mut img = vec![image::Rgb([0f32; 3]); img_shape.0 * img_shape.1];
+        let mut img = vec![0f32; img_shape.0 * img_shape.1 * 3];
         use rayon::iter::IndexedParallelIterator;
-        use rayon::iter::IntoParallelRefMutIterator;
         use rayon::iter::ParallelIterator;
-        img.par_iter_mut()
+        use rayon::prelude::ParallelSliceMut;
+        img.par_chunks_mut(3)
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        let target_file =
-            "target/02_cornell_box_pt_nee_material".to_string() + &(&i + 1).to_string() + ".hdr";
-        let file2 = std::fs::File::create(&target_file).unwrap();
-        use image::codecs::hdr::HdrEncoder;
-        let enc = HdrEncoder::new(file2);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
-        let output = image::open(&target_file).unwrap().to_rgb8();
-        let target_file = "target/02_cornell_box_pt_nee_material_error_map".to_string()
-            + &(&i + 1).to_string()
-            + ".hdr";
-        mse_rgb_error_map(target_file, &ground_truth, &output);
-        let err = rmse_error(&ground_truth, &output);
-        println!(
-            "num_sample_light: {}, num_sample_material: {}, mse: {}",
-            num_sample_light, num_sample_material, err
+        let num_sample = num_sample_material + num_sample_light;
+        write_hdr_file(
+            format!(
+                "target/02_cornell_box_nee_{}.hdr",
+                num_sample_material + num_sample
+            ),
+            img_shape,
+            &img,
         );
+        let path_error_map = format!("target/02_cornell_box_nee_{}_error_map.hdr", num_sample);
+        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img);
+        let err = rmse_error(&img_gt, &img);
+        println!("num_sample: {}, mse: {}", num_sample, err);
     }
     Ok(())
 }

@@ -14,14 +14,15 @@ anyhow.workspace = true
 ply-rs.workspace = true
 arrayref.workspace = true
 slice-of-array.workspace = true
+bytemuck = "1.20.0"
 rayon.workspace = true
 
 
 # for development
 pbrt4.workspace = true
 del-geo-nalgebra.workspace = true
-del-msh-core.workspace = true
 del-geo-core.workspace = true
+del-msh-core.workspace = true
 del-canvas-image.workspace = true
 del-canvas-cpu.workspace = true
 
