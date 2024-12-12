@@ -6,3 +6,4 @@ pub mod io_pfm;
 pub mod parse_pbrt;
 pub mod raycast_trimesh3;
 pub mod sampling;
+pub mod env_map;
