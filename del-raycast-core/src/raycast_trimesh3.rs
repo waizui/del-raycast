@@ -184,14 +184,10 @@ where
             ];
             let res = match interpolation {
                 del_canvas::texture::Interpolation::Nearest => {
-                    del_canvas::texture::nearest_integer_center::<3>(
-                        &pix, &tex_shape, tex_data,
-                    )
+                    del_canvas::texture::nearest_integer_center::<3>(&pix, &tex_shape, tex_data)
                 }
                 del_canvas::texture::Interpolation::Bilinear => {
-                    del_canvas::texture::bilinear_integer_center::<3>(
-                        &pix, &tex_shape, tex_data,
-                    )
+                    del_canvas::texture::bilinear_integer_center::<3>(&pix, &tex_shape, tex_data)
                 }
             };
             img[(ih * width + iw) * 3] = res[0];

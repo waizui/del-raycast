@@ -231,7 +231,6 @@ fn rmse_error(gt: &[f32], rhs: &[f32]) -> f32 {
     up / down
 }
 
-
 fn main() -> anyhow::Result<()> {
     let pbrt_file_path = "asset/cornell-box/scene-v4.pbrt";
     let (trimeshs, camera_fov, transform_cam_glbl2lcl, img_shape) =
