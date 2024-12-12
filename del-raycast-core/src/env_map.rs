@@ -96,9 +96,10 @@ pub fn calc_inverse_cdf_map(
         let mut sum = 0.;
         let mut i_y = 0;
         let v = pixel2tex(cur_h, h);
-        for i_h in 0..h {
+
+        for (i_h, item) in avg.iter().enumerate().take(h) {
             // row_avg(h)/itgr
-            sum += avg[i_h][0] / (h as Real * itgr);
+            sum += item[0] / (h as Real * itgr);
             if sum >= v {
                 i_y = i_h;
                 break;
