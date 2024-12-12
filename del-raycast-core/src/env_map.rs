@@ -28,7 +28,7 @@ pub fn pixel2texpair(x: usize, y: usize, w: usize, h: usize) -> [Real; 2] {
     [u, v]
 }
 
-pub fn calc_grayscale(img: &Vec<Rgb>, w: usize, h: usize) -> Vec<Rgb> {
+pub fn calc_grayscale(img: &[Rgb], w: usize, h: usize) -> Vec<Rgb> {
     let iter = |i_pix: usize, pix: &mut Rgb| {
         let c = img[i_pix];
         let gray = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]).clamp(0., 1.);
@@ -45,7 +45,7 @@ pub fn calc_grayscale(img: &Vec<Rgb>, w: usize, h: usize) -> Vec<Rgb> {
 }
 
 /// return columns average map and rows average map
-pub fn calc_avg_col_row(grayscale: &Vec<Rgb>, w: usize, h: usize) -> [Vec<Rgb>; 2] {
+pub fn calc_avg_col_row(grayscale: &[Rgb], w: usize, h: usize) -> [Vec<Rgb>; 2] {
     let iter = |i_pix: usize, pix: &mut Rgb, is_row_avg: bool| {
         let ext = if is_row_avg { w } else { h };
 
@@ -83,7 +83,7 @@ pub fn calc_avg_col_row(grayscale: &Vec<Rgb>, w: usize, h: usize) -> [Vec<Rgb>; 
 
 /// return marginal probabilty map of y and conditional probabilty map of p(x|y)
 pub fn calc_inverse_cdf_map(
-    grayscale: &Vec<Rgb>,
+    grayscale: &[Rgb],
     itgr: Real,
     w: usize,
     h: usize,
@@ -146,7 +146,7 @@ pub fn calc_inverse_cdf_map(
     (marginal_map, conditinal_map)
 }
 
-pub fn calc_integral_over_grayscale(grayscale: &Vec<Rgb>, w: usize, h: usize) -> Real {
+pub fn calc_integral_over_grayscale(grayscale: &[Rgb], w: usize, h: usize) -> Real {
     let mut sum = 0.;
 
     for i_h in 0..h {
