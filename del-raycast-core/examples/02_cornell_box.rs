@@ -188,7 +188,7 @@ where
     del_geo_core::vec3::add(&tmp0, &emittance1)
 }
 
-fn mse_rgb_error_map(
+fn write_hdr_file_mse_rgb_error_map(
     target_file: String,
     img_shape: (usize, usize),
     ground_truth: &[f32],
@@ -211,6 +211,16 @@ fn mse_rgb_error_map(
     let _ = enc.encode(&img_error, img_shape.0, img_shape.1);
 }
 
+fn write_hdr_file(path_output: String, img_shape: (usize, usize), img: &[f32]) {
+    // write output
+    let file1 = std::fs::File::create(path_output.clone()).unwrap();
+    use image::codecs::hdr::HdrEncoder;
+    let enc = HdrEncoder::new(file1);
+    let img: &[image::Rgb<f32>] =
+        unsafe { std::slice::from_raw_parts(img.as_ptr() as _, img.len() / 3) };
+    let _ = enc.encode(&img, img_shape.0, img_shape.1);
+}
+
 fn rmse_error(gt: &[f32], rhs: &[f32]) -> f32 {
     let up: f32 = gt
         .iter()
@@ -221,15 +231,6 @@ fn rmse_error(gt: &[f32], rhs: &[f32]) -> f32 {
     up / down
 }
 
-fn write_hdr_file(path_output: String, img_shape: (usize, usize), img: &[f32]) {
-    // write output
-    let file1 = std::fs::File::create(path_output.clone()).unwrap();
-    use image::codecs::hdr::HdrEncoder;
-    let enc = HdrEncoder::new(file1);
-    let img: &[image::Rgb<f32>] =
-        unsafe { std::slice::from_raw_parts(img.as_ptr() as _, img.len() / 3) };
-    let _ = enc.encode(&img, img_shape.0, img_shape.1);
-}
 
 fn main() -> anyhow::Result<()> {
     let pbrt_file_path = "asset/cornell-box/scene-v4.pbrt";
@@ -439,7 +440,7 @@ fn main() -> anyhow::Result<()> {
             "target/02_cornell_box_light_sampling_{}_error_map.hdr",
             num_sample
         );
-        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        write_hdr_file_mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
         let err = rmse_error(&img_gt, &img_out);
         println!("num_sample: {}, mse: {}", num_sample, err);
     }
@@ -530,7 +531,7 @@ fn main() -> anyhow::Result<()> {
             "target/02_cornell_box_material_sampling_{}_error_map.hdr",
             num_sample
         );
-        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        write_hdr_file_mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
         let err = rmse_error(&img_gt, &img_out);
         println!("num_sample: {}, mse: {}", num_sample, err);
     }
@@ -687,7 +688,7 @@ fn main() -> anyhow::Result<()> {
             "target/02_cornell_box_mis_{}_error_map.hdr",
             num_sample_bsdf + num_sample_light
         );
-        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        write_hdr_file_mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
         let err = rmse_error(&img_gt, &img_out);
         println!(
             "num_sample: {}, mse: {}",
@@ -740,7 +741,7 @@ fn main() -> anyhow::Result<()> {
             &img_out,
         );
         let path_error_map = format!("target/02_cornell_box_pt_{}_error_map.hdr", num_sample);
-        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        write_hdr_file_mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
         let err = rmse_error(&img_gt, &img_out);
         println!("num_sample: {}, mse: {}", num_sample, err);
     }
@@ -849,7 +850,7 @@ fn main() -> anyhow::Result<()> {
             &img,
         );
         let path_error_map = format!("target/02_cornell_box_nee_{}_error_map.hdr", num_sample);
-        mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img);
+        write_hdr_file_mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img);
         let err = rmse_error(&img_gt, &img);
         println!("num_sample: {}, mse: {}", num_sample, err);
     }

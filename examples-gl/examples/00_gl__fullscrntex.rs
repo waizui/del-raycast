@@ -29,7 +29,7 @@ impl del_gl_winit_glutin::app3::Content for Content {
         );
         //println!("{:?}",img.color());
         let (tex_data, tex_shape, _bitdepth) =
-            del_canvas_image::load_image_as_float_array("asset/spot/spot_texture.png").unwrap();
+            del_canvas::load_image_as_float_array("asset/spot/spot_texture.png").unwrap();
         //
         Self {
             tri2vtx,
@@ -69,7 +69,7 @@ impl del_gl_winit_glutin::app3::Content for Content {
             &pix2tri,
             self.tex_shape,
             &self.tex_data,
-            &del_canvas_image::texture::Interpolation::Bilinear,
+            &del_canvas::texture::Interpolation::Bilinear,
         );
         let img_data: Vec<u8> = img_data
             .iter()

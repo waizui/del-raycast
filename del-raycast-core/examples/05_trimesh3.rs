@@ -53,7 +53,7 @@ fn main() -> anyhow::Result<()> {
             &vtx2xyz,
             &pix2tri,
         );
-        del_canvas_image::write_png_from_float_image_rgb(
+        del_canvas::write_png_from_float_image_rgb(
             "target/05_trimesh3_normalmap.png",
             &img_shape,
             &pix2rgb,
@@ -72,7 +72,7 @@ fn main() -> anyhow::Result<()> {
             &bvhnodes,
             &aabbs,
         );
-        del_canvas_image::write_png_from_float_image_grayscale(
+        del_canvas::write_png_from_float_image_grayscale(
             "target/05_trimesh3_depth.png",
             &img_shape,
             &img_data,
@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()> {
     {
         // render texture
         let (tex_data, tex_shape, bitdepth) =
-            del_canvas_image::load_image_as_float_array("asset/spot/spot_texture.png")?;
+            del_canvas::load_image_as_float_array("asset/spot/spot_texture.png")?;
         assert_eq!(bitdepth, 3);
         let img_data = del_raycast_core::raycast_trimesh3::render_texture_from_pix2tri(
             img_shape,
@@ -93,9 +93,9 @@ fn main() -> anyhow::Result<()> {
             &pix2tri,
             tex_shape,
             &tex_data,
-            &del_canvas_image::texture::Interpolation::Nearest,
+            &del_canvas::texture::Interpolation::Nearest,
         );
-        del_canvas_image::write_png_from_float_image_rgb(
+        del_canvas::write_png_from_float_image_rgb(
             "target/05_trimesh3_texture_nearest.png",
             &img_shape,
             &img_data,
@@ -110,9 +110,9 @@ fn main() -> anyhow::Result<()> {
             &pix2tri,
             tex_shape,
             &tex_data,
-            &del_canvas_image::texture::Interpolation::Bilinear,
+            &del_canvas::texture::Interpolation::Bilinear,
         );
-        del_canvas_image::write_png_from_float_image_rgb(
+        del_canvas::write_png_from_float_image_rgb(
             "target/05_trimesh3_texture_bilinear.png",
             &img_shape,
             &img_data,

@@ -149,7 +149,7 @@ pub fn render_texture_from_pix2tri<Index>(
     pix2tri: &[Index],
     tex_shape: (usize, usize),
     tex_data: &[f32],
-    interpolation: &del_canvas_image::texture::Interpolation,
+    interpolation: &del_canvas::texture::Interpolation,
 ) -> Vec<f32>
 where
     Index: num_traits::PrimInt + AsPrimitive<usize>,
@@ -183,13 +183,13 @@ where
                 (1. - uv[1]) * tex_shape.1 as f32,
             ];
             let res = match interpolation {
-                del_canvas_image::texture::Interpolation::Nearest => {
-                    del_canvas_image::texture::nearest_integer_center::<3>(
+                del_canvas::texture::Interpolation::Nearest => {
+                    del_canvas::texture::nearest_integer_center::<3>(
                         &pix, &tex_shape, tex_data,
                     )
                 }
-                del_canvas_image::texture::Interpolation::Bilinear => {
-                    del_canvas_image::texture::bilinear_integer_center::<3>(
+                del_canvas::texture::Interpolation::Bilinear => {
+                    del_canvas::texture::bilinear_integer_center::<3>(
                         &pix, &tex_shape, tex_data,
                     )
                 }

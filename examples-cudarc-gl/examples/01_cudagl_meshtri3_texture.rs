@@ -38,7 +38,7 @@ impl del_gl_winit_glutin::app3::Content for Content {
         );
         //println!("{:?}",img.color());
         let (tex_data, tex_shape, bitdepth) =
-            del_canvas_image::load_image_as_float_array("asset/spot/spot_texture.png").unwrap();
+            del_canvas::load_image_as_float_array("asset/spot/spot_texture.png").unwrap();
         assert_eq!(bitdepth, 3);
         let dev = cudarc::driver::CudaDevice::new(0).unwrap();
         // let pix_to_tri = dev.get_func("my_module", "pix_to_tri").unwrap();
@@ -121,7 +121,7 @@ impl del_gl_winit_glutin::app3::Content for Content {
             &pix2tri,
             self.tex_shape,
             &self.tex_data,
-            &del_canvas_image::texture::Interpolation::Bilinear,
+            &del_canvas::texture::Interpolation::Bilinear,
         );
         let img_data: Vec<u8> = img_data
             .iter()

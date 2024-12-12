@@ -26,7 +26,7 @@ del-msh-core.workspace = true
 del-geo-core.workspace = true
 del-gl-core.workspace = true
 del-gl-winit-glutin.workspace = true
-del-canvas-image.workspace = true
+del-canvas.workspace = true
 del-raycast-core.workspace = true
 
 cudarc = { workspace = true, optional = true }

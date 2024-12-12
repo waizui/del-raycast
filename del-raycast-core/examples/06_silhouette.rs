@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
             .unwrap();
         let r1 = del_geo_core::mat4_col_major::transform_homogeneous(&transform_world2ndc, p1.p)
             .unwrap();
-        del_canvas_cpu::rasterize_line::draw_dda_with_transformation(
+        del_canvas::rasterize::line::draw_dda_with_transformation(
             &mut img_data,
             img_shape.0,
             &[r0[0], r0[1]],
@@ -95,7 +95,7 @@ fn main() -> anyhow::Result<()> {
     }
     use slice_of_array::SliceFlatExt;
     let img_data = img_data.flat();
-    del_canvas_image::write_png_from_float_image_rgb(
+    del_canvas::write_png_from_float_image_rgb(
         "target/06_silhouette.png",
         &img_shape,
         img_data,
