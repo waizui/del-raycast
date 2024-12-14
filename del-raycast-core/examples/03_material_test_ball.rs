@@ -141,8 +141,8 @@ fn main() -> anyhow::Result<()> {
     for ih in 0..img_shape.1 {
         for iw in 0..img_shape.0 {
             let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                iw,
-                ih,
+                (iw, ih),
+                (0., 0.),
                 img_shape,
                 camera_fov,
                 transform_cam_lcl2glbl,
