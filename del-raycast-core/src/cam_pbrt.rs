@@ -18,7 +18,7 @@ pub fn cast_ray(
     let mut dir = [x, y, z];
     let mut org = [0.0, 0.0, 0.0];
     use del_geo_core::mat4_col_major;
-    dir = mat4_col_major::transform_vector(&transform_cam_lcl2glbl, &dir);
+    dir = mat4_col_major::transform_direction(&transform_cam_lcl2glbl, &dir);
     org = mat4_col_major::transform_homogeneous(&transform_cam_lcl2glbl, &org).unwrap();
     (org, dir)
 }
@@ -49,7 +49,7 @@ where
     let mut dir = [x, y, z];
     let mut org = [0.0, 0.0, 0.0];
     use del_geo_core::mat4_col_major;
-    dir = mat4_col_major::transform_vector(&transform_cam_lcl2glbl, &dir);
+    dir = mat4_col_major::transform_direction(&transform_cam_lcl2glbl, &dir);
     org = mat4_col_major::transform_homogeneous(&transform_cam_lcl2glbl, &org).unwrap();
     (org, dir)
 }

@@ -154,7 +154,7 @@ fn main() -> anyhow::Result<()> {
                 let ti = del_geo_core::mat4_col_major::try_inverse(&trimesh.transform).unwrap();
                 let ray_org =
                     del_geo_core::mat4_col_major::transform_homogeneous(&ti, &ray_org).unwrap();
-                let ray_dir = del_geo_core::mat4_col_major::transform_vector(&ti, &ray_dir);
+                let ray_dir = del_geo_core::mat4_col_major::transform_direction(&ti, &ray_dir);
                 let Some((t, _i_tri)) =
                 /*790
                     del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(

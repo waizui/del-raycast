@@ -1,11 +1,3 @@
-use del_geo_core::vec3::Vec3;
-use del_msh_core::io_svg::svg_outline_path_from_shape;
-use image::Pixel;
-use itertools::Itertools;
-use rand::Rng;
-use rayon::string;
-use std::f32::consts::PI;
-
 #[derive(Debug, Clone, Default)]
 struct TriangleMesh {
     vtx2xyz: Vec<f32>,
@@ -210,7 +202,7 @@ where
     let pdf = 1.0 / area_light;
     let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
     let tmp = cos_theta_hit * cos_theta_light / (r2 * pdf);
-    let tmp = tmp / PI;
+    let tmp = tmp / std::f32::consts::PI;
     vec3::scaled(&l_i, tmp)
 }
 
@@ -518,6 +510,7 @@ fn main() -> anyhow::Result<()> {
         let num_sample = 8 + 10 * i;
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             let pix = arrayref::array_mut_ref![pix, 0, 3];
+            use rand::Rng;
             use rand::SeedableRng;
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let mut l_o = [0., 0., 0.];
