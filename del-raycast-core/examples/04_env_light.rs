@@ -270,7 +270,7 @@ fn main() -> anyhow::Result<()> {
                     let pixelx = tex2pixel(samplex, texw);
                     let pixely = tex2pixel(sampley, texh);
 
-                    let sample_ray = envmap2unitsphere(&[samplex, sampley]);
+                    let sample_ray = envmap2unitsphere(&[samplex, 1. - sampley]);
 
                     let costheta = del_geo_core::vec3::dot(&hit_nrm, &sample_ray);
 
