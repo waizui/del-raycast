@@ -287,9 +287,7 @@ fn main() -> anyhow::Result<()> {
 
                     let sintheta = (1. - costheta * costheta).sqrt();
 
-                    del_geo_core::vec3::scale(&mut radiance, costheta);
-                    del_geo_core::vec3::scale(&mut radiance, sintheta);
-                    del_geo_core::vec3::scale(&mut radiance, 1. / pdf);
+                    del_geo_core::vec3::scale(&mut radiance, costheta * sintheta / pdf);
 
                     result = del_geo_core::vec3::add(&result, &radiance);
                 }
