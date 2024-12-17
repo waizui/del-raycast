@@ -31,7 +31,7 @@ pub fn pixel2texpair(x: usize, y: usize, w: usize, h: usize) -> [Real; 2] {
 pub fn calc_grayscale(img: &[Rgb], w: usize, h: usize) -> Vec<Rgb> {
     let iter = |i_pix: usize, pix: &mut Rgb| {
         let c = img[i_pix];
-        let gray = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]).clamp(0., 1.);
+        let gray = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
         pix.0 = [gray; 3];
     };
 
