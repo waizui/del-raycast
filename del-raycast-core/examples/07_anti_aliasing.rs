@@ -13,14 +13,9 @@ fn main() -> anyhow::Result<()> {
     );
     //
     let img_asp = 1.0;
-    let img_shape_lowres = (((16*4) as f32*img_asp) as usize, 16*4);
-    let cam_projection = del_geo_core::mat4_col_major::camera_perspective_blender(
-        img_asp,
-        24f32,
-        0.3,
-        10.0,
-        true,
-    );
+    let img_shape_lowres = (((16 * 4) as f32 * img_asp) as usize, 16 * 4);
+    let cam_projection =
+        del_geo_core::mat4_col_major::camera_perspective_blender(img_asp, 24f32, 0.3, 10.0, true);
     let cam_modelview =
         del_geo_core::mat4_col_major::camera_external_blender(&[0., 0., 2.0], 0., 0., 0.);
 
@@ -31,7 +26,8 @@ fn main() -> anyhow::Result<()> {
     let transform_ndc2world =
         del_geo_core::mat4_col_major::try_inverse(&transform_world2ndc).unwrap();
     let transform_world2pix_lowres = {
-        let transform_ndc2pix = del_geo_core::mat3_col_major::from_transform_ndc2pix(img_shape_lowres);
+        let transform_ndc2pix =
+            del_geo_core::mat3_col_major::from_transform_ndc2pix(img_shape_lowres);
         let transform_ndc2pix =
             del_geo_core::mat4_col_major::from_mat3_col_major_adding_z(&transform_ndc2pix);
         del_geo_core::mat4_col_major::mult_mat(&transform_ndc2pix, &transform_world2ndc)
@@ -82,22 +78,38 @@ fn main() -> anyhow::Result<()> {
         let (i0_vtx, i1_vtx) = (node2vtx[0], node2vtx[1]);
         let p0 = del_msh_core::vtx2xyz::to_xyz(&vtx2xyz, i0_vtx as usize).p;
         let p1 = del_msh_core::vtx2xyz::to_xyz(&vtx2xyz, i1_vtx as usize).p;
-        let q0 = p0.transform_homogeneous(&transform_world2pix_lowres).unwrap().xy();
-        let q1 = p1.transform_homogeneous(&transform_world2pix_lowres).unwrap().xy();
+        let q0 = p0
+            .transform_homogeneous(&transform_world2pix_lowres)
+            .unwrap()
+            .xy();
+        let q1 = p1
+            .transform_homogeneous(&transform_world2pix_lowres)
+            .unwrap()
+            .xy();
         let v01 = q1.sub(&q0);
         let is_horizontal = v01[0].abs() < v01[1].abs();
         let list_pix = del_geo_core::edge2::overlapping_pixels_dda(img_shape_lowres, &q0, &q1);
         for &i_pix in list_pix.iter() {
             let (iw1, ih1) = (i_pix % img_shape_lowres.0, i_pix / img_shape_lowres.0);
             if is_horizontal {
-                let is_in0 = if iw1 != 0 {pix2tri[ih1* img_shape_lowres.0+iw1-1] != u32::MAX } else {false};
-                let is_in1 = pix2tri[ih1* img_shape_lowres.0+iw1] != u32::MAX;
-                let is_in2 = if iw1 != img_shape_lowres.0-1 { pix2tri[ih1* img_shape_lowres.0+iw1+1] != u32::MAX } else {false};
+                let is_in0 = if iw1 != 0 {
+                    pix2tri[ih1 * img_shape_lowres.0 + iw1 - 1] != u32::MAX
+                } else {
+                    false
+                };
+                let is_in1 = pix2tri[ih1 * img_shape_lowres.0 + iw1] != u32::MAX;
+                let is_in2 = if iw1 != img_shape_lowres.0 - 1 {
+                    pix2tri[ih1 * img_shape_lowres.0 + iw1 + 1] != u32::MAX
+                } else {
+                    false
+                };
                 let c0 = [iw1 as f32 - 0.5, ih1 as f32 + 0.5];
                 let c1 = [iw1 as f32 + 0.5, ih1 as f32 + 0.5];
                 let c2 = [iw1 as f32 + 1.5, ih1 as f32 + 0.5];
                 if is_in0 && !is_in1 {
-                    if let Some((rc, re)) = del_geo_core::edge2::intersection_edge2(&c0, &c1, &q1, &q0) {
+                    if let Some((rc, re)) =
+                        del_geo_core::edge2::intersection_edge2(&c0, &c1, &q1, &q0)
+                    {
                         assert!(rc >= 0. && rc <= 1.0);
                         let rc = 1.0 - rc;
                         if rc < 0.5 {
@@ -109,7 +121,9 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
                 if is_in1 && !is_in2 {
-                    if let Some((rc, re)) = del_geo_core::edge2::intersection_edge2(&c1, &c2, &q0, &q1) {
+                    if let Some((rc, re)) =
+                        del_geo_core::edge2::intersection_edge2(&c1, &c2, &q0, &q1)
+                    {
                         assert!(rc >= 0. && rc <= 1.0);
                         let rc = 1.0 - rc;
                         if rc < 0.5 {
