@@ -1,5 +1,3 @@
-
-
 fn main() -> anyhow::Result<()> {
     let (tri2vtx, vtx2xyz) = del_msh_core::trimesh3_primitive::sphere_yup::<u32, f32>(0.8, 64, 64);
 
@@ -95,7 +93,7 @@ fn main() -> anyhow::Result<()> {
             .transform_homogeneous(&transform_world2pix_lowres)
             .unwrap()
             .xy();
-        let v01 = del_geo_core::vec2::sub(&q1,&q0);
+        let v01 = del_geo_core::vec2::sub(&q1, &q0);
         let is_horizontal = v01[0].abs() < v01[1].abs();
         let list_pix = del_geo_core::edge2::overlapping_pixels_dda(img_shape_lowres, &q0, &q1);
         for &i_pix in list_pix.iter() {
