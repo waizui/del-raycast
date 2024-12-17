@@ -53,6 +53,7 @@ del-raycast-cudarc-kernel = {  path = "del-raycast-cudarc-kernel" }
 # del-geo-core = { path = "../del-geo/del-geo-core" }
 # del-geo-nalgebra = { path="../del-geo/del-geo-nalgebra" }
 # del-msh-core = { path = "../del-msh/del-msh-core" }
+# del-fem-core = { path = "../del-fem/del-fem-core" }
 # del-canvas = {path = "../del-canvas"}
 # del-gl-core = { path = "../del-gl/del-gl-core"}
 # del-gl-winit-glutin = { path = "../del-gl/del-gl-winit-glutin"}
