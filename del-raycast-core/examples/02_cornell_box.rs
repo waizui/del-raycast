@@ -1,3 +1,8 @@
+use std::f32::consts::PI;
+
+use del_geo_core::vec3::Vec3;
+use itertools::WhileSome;
+
 #[derive(Debug, Clone, Default)]
 struct TriangleMesh {
     vtx2xyz: Vec<f32>,
@@ -171,7 +176,7 @@ fn radiance_from_light<RNG>(
     rng: &mut RNG,
     tri2cumsumarea: &[f32],
     i_trimesh_light: usize,
-) -> [f32; 3]
+) -> ([f32; 3], f32)
 where
     RNG: rand::Rng,
 {
@@ -187,23 +192,30 @@ where
     let cos_theta_hit = vec3::dot(&hit_nrm, &uvec_from_hit_to_light);
     let cos_theta_light = -vec3::dot(&light_nrm, &uvec_from_hit_to_light);
     if cos_theta_light < 0. {
-        return [0f32; 3];
+        return ([0f32; 3], 0.0);
     } // backside of light
     if let Some((_t, i_trimsh, _i_tri)) =
         intersection_ray_against_trimeshs(&hit_pos, &uvec_from_hit_to_light, &trimeshs)
     {
         if i_trimsh != i_trimesh_light {
-            return [0f32; 3];
+            return ([0f32; 3], 0.0);
         }
     } else {
-        return [0f32; 3];
+        return ([0f32; 3], 0.0);
     };
     let l_i = trimeshs[i_trimesh_light].spectrum.unwrap().0;
     let pdf = 1.0 / area_light;
     let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
     let tmp = cos_theta_hit * cos_theta_light / (r2 * pdf);
     let tmp = tmp / std::f32::consts::PI;
-    vec3::scaled(&l_i, tmp)
+    // dbg!(light_pos.sub(&hit_pos));
+    let g = hit_nrm
+        .normalized()
+        .dot(&uvec_from_hit_to_light.normalized())
+        .abs()
+        / (light_pos.sub(&hit_pos).squared_norm());
+    // dbg!(g);
+    (vec3::scaled(&l_i, tmp), g)
 }
 
 fn radiance_pt<RNG>(
@@ -314,9 +326,9 @@ where
         )
     } else {
         // hitting light
-        [0f32; 3]
+        ([0f32; 3], 0.0)
     };
-    let l_o_light = vec3::element_wise_mult(&reflectance1, &l_i);
+    let l_o_light = vec3::element_wise_mult(&reflectance1, &l_i.0);
     //
     let ray1_dir: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
         &nalgebra::Vector3::<f32>::from(hit_nrm),
@@ -335,6 +347,102 @@ where
     let l_o_mat = vec3::element_wise_mult(&reflectance1, &iradiance1);
     use del_geo_core::vec3::Vec3;
     l_emission.add(&l_o_mat).add(&l_o_light)
+}
+
+fn radiance_mis_nee<RNG>(
+    ray0_org: &[f32; 3],
+    ray0_dir: &[f32; 3],
+    i_depth: u32,
+    trimeshs: &Vec<TriangleMesh>,
+    rng: &mut RNG,
+    tri2cumsumarea: &[f32],
+    i_trimesh_light: usize,
+) -> [f32; 3]
+where
+    RNG: rand::Rng,
+{
+    if i_depth >= 10 {
+        return [0f32; 3];
+    }
+    use del_geo_core::vec3;
+    let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
+        hit_position_normal_emission_at_ray_intersection(&ray0_org, &ray0_dir, trimeshs)
+    else {
+        return [0f32; 3];
+    };
+    let reflectance1 = if i_depth >= 65 {
+        None
+    } else if i_depth > 3 {
+        // russian roulette
+        let refl1 = trimeshs[hit_itrimsh].reflectance.to_owned();
+        let &max_refl = refl1
+            .iter()
+            .max_by(|&a, &b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        if rng.gen::<f32>() < max_refl {
+            Some(vec3::scaled(&refl1, 1.0 / max_refl))
+        } else {
+            None
+        }
+    } else {
+        let refl1 = trimeshs[hit_itrimsh].reflectance.to_owned();
+        Some(refl1)
+    };
+    let Some(reflectance1) = reflectance1 else {
+        return [0f32; 3]; // ray terminated by Russian roulette or max depth
+    };
+    // ------------
+    let l_emission = if i_depth == 0 {
+        hit_emission
+    } else {
+        [0f32; 3] // in nee indirect emission is zero
+    };
+    let hit_pos_w_offset = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
+    let l_i = if hit_emission == [0f32; 3] {
+        radiance_from_light(
+            &hit_pos_w_offset,
+            &hit_nrm,
+            trimeshs,
+            rng,
+            tri2cumsumarea,
+            i_trimesh_light,
+        )
+    } else {
+        // hitting light
+        ([0f32; 3], 0.0)
+    };
+    let g = l_i.1;
+    let nee = 1.0 / tri2cumsumarea.last().unwrap();
+    let l_o_light = vec3::element_wise_mult(&reflectance1, &l_i.0);
+    let ray1_dir: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
+        &nalgebra::Vector3::<f32>::from(hit_nrm),
+        &[rng.gen::<f32>(), rng.gen::<f32>()],
+    )
+    .into();
+    let pt = ray0_dir.dot(&ray1_dir).abs() / PI;
+    let iradiance1 = radiance_mis_nee(
+        &hit_pos_w_offset,
+        &ray1_dir,
+        i_depth + 1,
+        trimeshs,
+        rng,
+        tri2cumsumarea,
+        i_trimesh_light,
+    );
+    let l_o_mat = vec3::element_wise_mult(&reflectance1, &iradiance1);
+    use del_geo_core::vec3::Vec3;
+    if g < 10e-9 {
+        return l_emission.add(&l_o_mat);
+    }
+    let pt1 = pt * g;
+    let w_nee = nee / (nee + pt1);
+    let nee1 = nee / g;
+    // dbg!(g, nee1);
+    let w_bsdf = pt / (pt + nee1);
+    // dbg!(w_nee, w_bsdf);
+    l_emission
+        .add(&l_o_light.scaled(w_nee))
+        .add(&l_o_mat.scaled(w_bsdf))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -378,7 +486,8 @@ fn main() -> anyhow::Result<()> {
         &trimeshs[i_trimesh_light].vtx2xyz,
         3,
     );
-    let &area_light = tri2cumsumarea.last().unwrap();
+    let area_light = tri2cumsumarea.last().unwrap().clone();
+    dbg!(area_light);
     let img_gt = image::open("asset/cornell-box/TungstenRender.exr")
         .unwrap()
         .to_rgb32f();
@@ -450,6 +559,155 @@ fn main() -> anyhow::Result<()> {
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         del_canvas::write_hdr_file("target/02_cornell_box_color.hdr", img_shape, &img_out)?;
+    }
+    println!("---------------------MIS sampling for NEE---------------------");
+    for i in 0..3 {
+        let num_sample = 8 + 10 * i;
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            let pix = arrayref::array_mut_ref!(pix, 0, 3);
+            use rand::Rng;
+            use rand::SeedableRng;
+            let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
+            let mut l_o = [0., 0., 0.];
+            for _i_sample in 0..num_sample {
+                let (ray0_org, ray0_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                    (i_pix % img_shape.0, i_pix / img_shape.0),
+                    (
+                        del_raycast_core::sampling::tent(rng.gen::<f32>()),
+                        del_raycast_core::sampling::tent(rng.gen::<f32>()),
+                    ),
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                let rad = radiance_mis_nee(
+                    &ray0_org,
+                    &ray0_dir,
+                    0,
+                    &trimeshs,
+                    &mut rng,
+                    &tri2cumsumarea,
+                    i_trimesh_light,
+                );
+                l_o = del_geo_core::vec3::add(&l_o, &rad);
+            }
+            *pix = del_geo_core::vec3::scaled(&l_o, 1. / num_sample as f32);
+        };
+        let img_out = {
+            let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
+            use rayon::prelude::*;
+            img_out
+                .par_chunks_mut(3)
+                .enumerate()
+                .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+            img_out
+        };
+        del_canvas::write_hdr_file(
+            format!("target/02_cornell_box_mis_nee_{}.hdr", num_sample),
+            img_shape,
+            &img_out,
+        )?;
+        let path_error_map = format!("target/02_cornell_box_mis_nee_{}_error_map.hdr", num_sample);
+        del_canvas::write_hdr_file_mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        let err = del_canvas::rmse_error(&img_gt, &img_out);
+        println!("num_sample: {}, mse: {}", num_sample, err);
+    }
+    println!("---------------------MIS sampling of Arealight and PT, only for depth=0---------------------");
+    for i in 0..3 {
+        // Multiple importance sampling on both light and BSDF, use balance heuristic to get the weight for different sampling strategies
+        let num_sample_light = 8 + 10 * i;
+        let num_sample_bsdf = 8 + 10 * i;
+        let w_light = num_sample_light as f32 / (num_sample_light + num_sample_bsdf) as f32;
+        let w_bsdf = num_sample_bsdf as f32 / (num_sample_light + num_sample_bsdf) as f32;
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            let pix = arrayref::array_mut_ref![pix, 0, 3];
+            use del_geo_core::vec3;
+            use rand::Rng;
+            use rand::SeedableRng;
+            let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
+            let mut l_o = [0., 0., 0.];
+            for _i_sample in 0..num_sample_light {
+                let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                    (i_pix % img_shape.0, i_pix / img_shape.0),
+                    (
+                        del_raycast_core::sampling::tent(rng.gen::<f32>()),
+                        del_raycast_core::sampling::tent(rng.gen::<f32>()),
+                    ),
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
+                    hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir, &trimeshs)
+                else {
+                    continue;
+                };
+                l_o = vec3::add(&l_o, &hit_emission);
+                let hit_pos = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
+                let l_i = radiance_from_light(
+                    &hit_pos,
+                    &hit_nrm,
+                    &trimeshs,
+                    &mut rng,
+                    &tri2cumsumarea,
+                    i_trimesh_light,
+                );
+                let reflectance = trimeshs[hit_itrimsh].reflectance;
+                let li_r = vec3::element_wise_mult(&l_i.0, &reflectance);
+                l_o = vec3::add(&l_o, &li_r);
+            }
+            *pix = l_o.scaled(w_light / num_sample_light as f32);
+            l_o = [0f32; 3];
+            for _i_sample in 0..num_sample_bsdf {
+                let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+                    (i_pix % img_shape.0, i_pix / img_shape.0),
+                    (
+                        del_raycast_core::sampling::tent(rng.gen::<f32>()),
+                        del_raycast_core::sampling::tent(rng.gen::<f32>()),
+                    ),
+                    img_shape,
+                    camera_fov,
+                    transform_cam_lcl2glbl,
+                );
+                let rad = radiance_pt(&ray_org, &ray_dir, 0, &trimeshs, &mut rng);
+                l_o = vec3::add(&l_o, &rad);
+            }
+            *pix = vec3::add(&l_o.scaled(w_bsdf / num_sample_bsdf as f32), pix);
+        };
+        let img_out = {
+            let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
+            use rayon::iter::IndexedParallelIterator;
+            use rayon::iter::ParallelIterator;
+            use rayon::prelude::ParallelSliceMut;
+            img_out
+                .par_chunks_mut(3)
+                .enumerate()
+                .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+            img_out
+        };
+        del_canvas::write_hdr_file(
+            format!(
+                "target/02_cornell_box_raw_mis_{}.hdr",
+                num_sample_bsdf + num_sample_light
+            ),
+            img_shape,
+            &img_out,
+        )?;
+        del_canvas::write_hdr_file_mse_rgb_error_map(
+            format!(
+                "target/02_cornell_box_raw_mis_{}_error_map.hdr",
+                num_sample_bsdf + num_sample_light
+            ),
+            img_shape,
+            &img_gt,
+            &img_out,
+        );
+        let err = del_canvas::rmse_error(&img_gt, &img_out);
+        println!(
+            "num_sample: {}, mse: {}",
+            num_sample_bsdf + num_sample_light,
+            err
+        );
     }
     println!("---------------------NEE tracer---------------------");
     for i in 0..3 {
@@ -588,7 +846,7 @@ fn main() -> anyhow::Result<()> {
                     i_trimesh_light,
                 );
                 let reflectance = trimeshs[hit_itrimsh].reflectance;
-                let li_r = vec3::element_wise_mult(&l_i, &reflectance);
+                let li_r = vec3::element_wise_mult(&l_i.0, &reflectance);
                 l_o = vec3::add(&l_o, &li_r);
             }
             *pix = l_o.scaled(1.0 / num_sample as f32);
@@ -686,169 +944,6 @@ fn main() -> anyhow::Result<()> {
         del_canvas::write_hdr_file_mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
         let err = del_canvas::rmse_error(&img_gt, &img_out);
         println!("num_sample: {}, mse: {}", num_sample, err);
-    }
-    println!("---------------------MIS sampling---------------------");
-    for i in 0..3 {
-        // Multiple importance sampling on both light and BSDF, use balance heuristic to get the weight for different sampling strategies
-        let num_sample_light = 8 + 10 * i;
-        let num_sample_bsdf = 8 + 10 * i;
-        let c_light = num_sample_light as f32 / (num_sample_light + num_sample_bsdf) as f32;
-        let c_bsdf = num_sample_bsdf as f32 / (num_sample_light + num_sample_bsdf) as f32;
-        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
-            let pix = arrayref::array_mut_ref![pix, 0, 3];
-            use del_geo_core::vec3;
-            use rand::Rng;
-            use rand::SeedableRng;
-            let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
-            let mut l_o = [0., 0., 0.];
-            for _i_sample in 0..num_sample_light {
-                let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                    (i_pix % img_shape.0, i_pix / img_shape.0),
-                    (0., 0.),
-                    img_shape,
-                    camera_fov,
-                    transform_cam_lcl2glbl,
-                );
-                let Some((ray_t, i_trimsh_hit, i_tri_hit)) =
-                    intersection_ray_against_trimeshs(&ray_org, &ray_dir, &trimeshs)
-                else {
-                    continue; // the primal ray does not hit anything..
-                };
-                if trimeshs[i_trimsh_hit].spectrum.is_some() {
-                    // the primal ray hit light
-                    l_o[0] += trimeshs[i_trimsh_hit].spectrum.unwrap().0[0];
-                    l_o[1] += trimeshs[i_trimsh_hit].spectrum.unwrap().0[1];
-                    l_o[2] += trimeshs[i_trimsh_hit].spectrum.unwrap().0[2];
-                    continue;
-                }
-                let hit_pos = vec3::axpy(ray_t, &ray_dir, &ray_org);
-                let hit_nrm = trimeshs[i_trimsh_hit].normal_at(&hit_pos, i_tri_hit);
-                let hit_nrm = if vec3::dot(&hit_nrm, &ray_dir) > 0. {
-                    [-hit_nrm[0], -hit_nrm[1], -hit_nrm[2]]
-                } else {
-                    hit_nrm
-                };
-                let hit_pos = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
-                let (light_pos, light_nrm) = sampling_light(
-                    &tri2cumsumarea,
-                    [rng.gen(), rng.gen()],
-                    &trimeshs[i_trimesh_light],
-                );
-                let uvec_from_hit_to_light = vec3::normalized(&vec3::sub(&light_pos, &hit_pos));
-                let cos_theta_hit = vec3::dot(&hit_nrm, &uvec_from_hit_to_light);
-                let cos_theta_light = -vec3::dot(&light_nrm, &uvec_from_hit_to_light);
-                if cos_theta_light < 0. {
-                    continue;
-                } // backside of light
-                if let Some((_t, i_trimsh, _i_tri)) =
-                    intersection_ray_against_trimeshs(&hit_pos, &uvec_from_hit_to_light, &trimeshs)
-                {
-                    if i_trimsh != i_trimesh_light {
-                        continue;
-                    }
-                } else {
-                    continue;
-                };
-                let l_i = trimeshs[i_trimesh_light].spectrum.unwrap().0;
-                let pdf_light = 1.0 / area_light;
-                let pdf_bsdf = 1.0 / (2.0 * std::f32::consts::PI);
-                let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
-                let reflectance = trimeshs[i_trimsh_hit].reflectance;
-                let li_r = vec3::element_wise_mult(&l_i, &reflectance);
-                let tmp = cos_theta_hit * cos_theta_light
-                    / (r2 * (pdf_light * c_light + pdf_bsdf * c_bsdf) as f32);
-                l_o = vec3::axpy(tmp, &li_r, &l_o);
-            }
-            for _i_sample in 0..num_sample_bsdf {
-                let (ray0_org, ray0_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                    (i_pix % img_shape.0, i_pix / img_shape.0),
-                    (0., 0.),
-                    img_shape,
-                    camera_fov,
-                    transform_cam_lcl2glbl,
-                );
-                let Some((t1, i_trimsh1, i_tri1)) =
-                    intersection_ray_against_trimeshs(&ray0_org, &ray0_dir, &trimeshs)
-                else {
-                    continue; // the primal ray does not hit anything..
-                };
-                let pos1 = vec3::axpy(t1, &ray0_dir, &ray0_org);
-                let nrm1 = trimeshs[i_trimsh1].normal_at(&pos1, i_tri1);
-                if let Some((spectrum1, two_sided1)) = trimeshs[i_trimsh1].spectrum {
-                    // the primal ray hit light
-                    if two_sided1 || (vec3::dot(&nrm1, &ray0_dir) < 0.) {
-                        l_o[0] += spectrum1[0];
-                        l_o[1] += spectrum1[1];
-                        l_o[2] += spectrum1[2];
-                        continue;
-                    }
-                }
-                let nrm1 = if vec3::dot(&nrm1, &ray0_dir) > 0. {
-                    [-nrm1[0], -nrm1[1], -nrm1[2]]
-                } else {
-                    nrm1
-                };
-                let ray1_dir: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
-                    &nalgebra::Vector3::<f32>::new(nrm1[0], nrm1[1], nrm1[2]),
-                    &[rng.gen::<f32>(), rng.gen::<f32>()],
-                )
-                .into();
-                let ray1_org = vec3::axpy(1.0e-3, &nrm1, &pos1);
-                let Some((t2, i_trimsh2, i_tri2)) =
-                    intersection_ray_against_trimeshs(&ray1_org, &ray1_dir, &trimeshs)
-                else {
-                    continue;
-                };
-                let Some((spectrum2, two_sided2)) = trimeshs[i_trimsh2].spectrum else {
-                    continue;
-                };
-                let pos2 = vec3::axpy(t2, &ray1_dir, &ray1_org);
-                let nrm2 = trimeshs[i_trimsh2].normal_at(&pos2, i_tri2);
-                if !two_sided2 && (vec3::dot(&nrm2, &ray1_dir) > 0.) {
-                    continue;
-                }
-                l_o[0] += spectrum2[0] * trimeshs[i_trimsh1].reflectance[0];
-                l_o[1] += spectrum2[1] * trimeshs[i_trimsh1].reflectance[1];
-                l_o[2] += spectrum2[2] * trimeshs[i_trimsh1].reflectance[2];
-            }
-            (*pix)[0] = l_o[0] / (num_sample_light + num_sample_bsdf) as f32;
-            (*pix)[1] = l_o[1] / (num_sample_light + num_sample_bsdf) as f32;
-            (*pix)[2] = l_o[2] / (num_sample_light + num_sample_bsdf) as f32;
-        };
-        let img_out = {
-            let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
-            use rayon::iter::IndexedParallelIterator;
-            use rayon::iter::ParallelIterator;
-            use rayon::prelude::ParallelSliceMut;
-            img_out
-                .par_chunks_mut(3)
-                .enumerate()
-                .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-            img_out
-        };
-        del_canvas::write_hdr_file(
-            format!(
-                "target/02_cornell_box_mis_{}.hdr",
-                num_sample_bsdf + num_sample_light
-            ),
-            img_shape,
-            &img_out,
-        )?;
-        del_canvas::write_hdr_file_mse_rgb_error_map(
-            format!(
-                "target/02_cornell_box_mis_{}_error_map.hdr",
-                num_sample_bsdf + num_sample_light
-            ),
-            img_shape,
-            &img_gt,
-            &img_out,
-        );
-        let err = del_canvas::rmse_error(&img_gt, &img_out);
-        println!(
-            "num_sample: {}, mse: {}",
-            num_sample_bsdf + num_sample_light,
-            err
-        );
     }
     Ok(())
 }
