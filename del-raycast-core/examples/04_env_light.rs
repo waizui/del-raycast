@@ -105,7 +105,7 @@ fn main() -> anyhow::Result<()> {
 
     {
         // material sampling
-        let samples = 16;
+        let samples = 64;
         let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
             let ih = i_pix / img_shape.0;
             let iw = i_pix % img_shape.0;
@@ -257,6 +257,9 @@ fn main() -> anyhow::Result<()> {
                 let hit_pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
                 let hit_nrm = vec3::sub(&hit_pos, &sphere_cntr);
                 let hit_nrm = vec3::normalize(&hit_nrm);
+                let nrm =
+                    del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &hit_nrm)
+                        .unwrap();
 
                 let mut result = [0.; 3];
                 for _isample in 0..samples {
@@ -270,21 +273,17 @@ fn main() -> anyhow::Result<()> {
                     let pixelx = tex2pixel(samplex, texw);
                     let pixely = tex2pixel(sampley, texh);
 
-                    let sample_ray = envmap2unitsphere(&[samplex, sampley]);
+                    let sample_ray = envmap2unitsphere(&[samplex, 1. - sampley]);
 
-                    let costheta = del_geo_core::vec3::dot(&hit_nrm, &sample_ray);
+                    let costheta = del_geo_core::vec3::dot(&nrm, &sample_ray);
 
                     // joint probability of point (samplex,sampley)
                     let pdf = grayscale[pixely * texw + pixelx][0] / itgr;
                     if costheta <= 0. || pdf <= 0. {
                         continue;
                     }
-                    // (1/pi) * (radiance* costhta*sinteta * 4pi)/pdf = 4*radiance*costheta*sintheta/pdf
                     let mut radiance = img[pixely * texw + pixelx].0;
-                    let sintheta = (1. - costheta * costheta).sqrt();
-                    vec3::scale_in_place(&mut radiance, costheta);
-                    vec3::scale_in_place(&mut radiance, sintheta);
-                    vec3::scale_in_place(&mut radiance, 1. / pdf);
+                    del_geo_core::vec3::scale_in_place(&mut radiance, costheta / pdf);
                     result = vec3::add(&result, &radiance);
                 }
                 vec3::scale_in_place(&mut result, 4. / samples as f32);
