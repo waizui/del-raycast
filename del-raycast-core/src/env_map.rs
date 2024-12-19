@@ -28,22 +28,15 @@ pub fn pixel2texpair(x: usize, y: usize, w: usize, h: usize) -> [Real; 2] {
     [u, v]
 }
 
-pub fn calc_grayscale(img: &[Rgb], w: usize, h: usize) -> Vec<Rgb> {
-    let iter = |i_pix: usize, pix: &mut Rgb| {
-        let c = img[i_pix];
+pub fn calc_grayscale(input_img: &[Rgb], w: usize, h: usize) -> Vec<Rgb> {
+    let mut img = vec![*Rgb::from_slice(&[0.; 3]); w * h];
+    img.par_iter_mut().enumerate().for_each(|(i_pix, pix)| {
+        let c = input_img[i_pix]; // use input_img instead img
         let gray = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]).clamp(0., 1.);
         pix.0 = [gray; 3];
-    };
-
-    let mut img = vec![*Rgb::from_slice(&[0.; 3]); w * h];
-
-    img.par_iter_mut()
-        .enumerate()
-        .for_each(|(i_pix, pix)| iter(i_pix, pix));
-
+    });
     img
 }
-
 /// return columns average map and rows average map
 pub fn calc_avg_col_row(grayscale: &[Rgb], w: usize, h: usize) -> [Vec<Rgb>; 2] {
     let iter = |i_pix: usize, pix: &mut Rgb, is_row_avg: bool| {
@@ -148,17 +141,10 @@ pub fn calc_inverse_cdf_map(
 }
 
 pub fn calc_integral_over_grayscale(grayscale: &[Rgb], w: usize, h: usize) -> Real {
-    let mut sum = 0.;
-
-    for i_h in 0..h {
-        for i_w in 0..w {
-            let c = grayscale[i_w + i_h * w][0];
-            sum += c;
-        }
-    }
-
-    sum /= (w * h) as Real;
-    sum
+    (0..h)
+        .flat_map(|i_h| (0..w).map(move |i_w| grayscale[i_w + i_h * w][0]))
+        .sum::<Real>()
+        / ((w * h) as Real)
 }
 
 pub fn unitsphere2envmap(d: &[f32; 3]) -> [Real; 2] {
