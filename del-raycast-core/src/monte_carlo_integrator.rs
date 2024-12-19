@@ -1,4 +1,5 @@
 pub trait Scene {
+    #[allow(clippy::type_complexity)]
     fn hit_position_normal_emission_at_ray_intersection(
         &self,
         ray_org: &[f32; 3],
@@ -41,7 +42,7 @@ where
     let mut throughput = [1f32; 3];
     let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
     let mut ray_dir: [f32; 3] = ray_dir_ini.to_owned();
-    for i_depth in 0..max_depth {
+    for _i_depth in 0..max_depth {
         let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
             scene.hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir)
         else {
@@ -177,7 +178,7 @@ where
         }
         {
             let (ray_dir_brdf, brdf, pdf_brdf) = scene.sample_brdf(hit_nrm, hit_itrimsh, rng);
-            if let Some((hit_pos_light, hit_nrm_light, hit_emission, hit_itrimsh_light)) = scene
+            if let Some((hit_pos_light, hit_nrm_light, hit_emission, _hit_itrimsh_light)) = scene
                 .hit_position_normal_emission_at_ray_intersection(&hit_pos_w_offset, &ray_dir_brdf)
             {
                 if hit_emission != [0f32; 3] {
