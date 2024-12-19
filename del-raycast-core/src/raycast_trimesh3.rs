@@ -133,7 +133,7 @@ where
             let tri = del_msh_core::trimesh3::to_tri3(tri2vtx, vtx2xyz, i_tri);
             let nrm = tri.normal();
             let nrm = del_geo_core::mat4_col_major::transform_direction(cam_modelviewd, &nrm);
-            let unrm = del_geo_core::vec3::normalized(&nrm);
+            let unrm = del_geo_core::vec3::normalize(&nrm);
             img[(ih * img_width + iw) * 3] = unrm[0] * 0.5 + 0.5;
             img[(ih * img_width + iw) * 3 + 1] = unrm[1] * 0.5 + 0.5;
             img[(ih * img_width + iw) * 3 + 2] = unrm[2] * 0.5 + 0.5;

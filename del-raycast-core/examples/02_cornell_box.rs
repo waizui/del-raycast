@@ -25,7 +25,7 @@ impl TriangleMesh {
             bc[0] * n0[1] + bc[1] * n1[1] + bc[2] * n2[1],
             bc[0] * n0[2] + bc[1] * n1[2] + bc[2] * n2[2],
         ];
-        del_geo_core::vec3::normalized(&n)
+        del_geo_core::vec3::normalize(&n)
     }
 }
 
@@ -183,14 +183,14 @@ where
         &trimeshs[i_trimesh_light],
     );
     //
-    let uvec_from_hit_to_light = vec3::normalized(&vec3::sub(&light_pos, &hit_pos));
-    let cos_theta_hit = vec3::dot(&hit_nrm, &uvec_from_hit_to_light);
-    let cos_theta_light = -vec3::dot(&light_nrm, &uvec_from_hit_to_light);
+    let uvec_hit2light = vec3::normalize(&vec3::sub(&light_pos, &hit_pos));
+    let cos_theta_hit = vec3::dot(&hit_nrm, &uvec_hit2light);
+    let cos_theta_light = -vec3::dot(&light_nrm, &uvec_hit2light);
     if cos_theta_light < 0. {
         return [0f32; 3];
     } // backside of light
     if let Some((_t, i_trimsh, _i_tri)) =
-        intersection_ray_against_trimeshs(&hit_pos, &uvec_from_hit_to_light, &trimeshs)
+        intersection_ray_against_trimeshs(&hit_pos, &uvec_hit2light, &trimeshs)
     {
         if i_trimsh != i_trimesh_light {
             return [0f32; 3];
@@ -203,7 +203,7 @@ where
     let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
     let tmp = cos_theta_hit * cos_theta_light / (r2 * pdf);
     let tmp = tmp / std::f32::consts::PI;
-    vec3::scaled(&l_i, tmp)
+    vec3::scale(&l_i, tmp)
 }
 
 fn radiance_pt<RNG>(
@@ -231,7 +231,7 @@ where
             .max_by(|&a, &b| a.partial_cmp(b).unwrap())
             .unwrap();
         if rng.gen::<f32>() < max_refl {
-            Some(del_geo_core::vec3::scaled(&refl1, 1.0 / max_refl))
+            Some(del_geo_core::vec3::scale(&refl1, 1.0 / max_refl))
         } else {
             None
         }
@@ -285,7 +285,7 @@ where
             .max_by(|&a, &b| a.partial_cmp(b).unwrap())
             .unwrap();
         if rng.gen::<f32>() < max_refl {
-            Some(vec3::scaled(&refl1, 1.0 / max_refl))
+            Some(vec3::scale(&refl1, 1.0 / max_refl))
         } else {
             None
         }
@@ -483,7 +483,7 @@ fn main() -> anyhow::Result<()> {
                 );
                 l_o = del_geo_core::vec3::add(&l_o, &rad);
             }
-            *pix = del_geo_core::vec3::scaled(&l_o, 1. / num_sample as f32);
+            *pix = del_geo_core::vec3::scale(&l_o, 1. / num_sample as f32);
         };
         let img_out = {
             let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
@@ -528,7 +528,7 @@ fn main() -> anyhow::Result<()> {
                 let rad = radiance_pt(&ray0_org, &ray0_dir, 0, &trimeshs, &mut rng);
                 l_o = del_geo_core::vec3::add(&l_o, &rad);
             }
-            *pix = del_geo_core::vec3::scaled(&l_o, 1. / num_sample as f32);
+            *pix = del_geo_core::vec3::scale(&l_o, 1. / num_sample as f32);
         };
         let img_out = {
             let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
@@ -663,7 +663,7 @@ fn main() -> anyhow::Result<()> {
                     &vec3::element_wise_mult(&hit2_emission, &trimeshs[hit_itrimsh].reflectance),
                 );
             }
-            *pix = vec3::scaled(&l_o, 1.0 / num_sample as f32);
+            *pix = vec3::scale(&l_o, 1.0 / num_sample as f32);
         };
         let img_out = {
             let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
@@ -734,7 +734,7 @@ fn main() -> anyhow::Result<()> {
                     [rng.gen(), rng.gen()],
                     &trimeshs[i_trimesh_light],
                 );
-                let uvec_from_hit_to_light = vec3::normalized(&vec3::sub(&light_pos, &hit_pos));
+                let uvec_from_hit_to_light = vec3::normalize(&vec3::sub(&light_pos, &hit_pos));
                 let cos_theta_hit = vec3::dot(&hit_nrm, &uvec_from_hit_to_light);
                 let cos_theta_light = -vec3::dot(&light_nrm, &uvec_from_hit_to_light);
                 if cos_theta_light < 0. {

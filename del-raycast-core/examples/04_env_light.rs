@@ -60,9 +60,9 @@ fn main() -> anyhow::Result<()> {
                 use del_geo_core::vec3;
                 let pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
                 let nrm = vec3::sub(&pos, &sphere_cntr);
-                let hit_nrm = vec3::normalized(&nrm);
+                let hit_nrm = vec3::normalize(&nrm);
                 let refl = vec3::mirror_reflection(&ray_dir, &hit_nrm);
-                let refl = vec3::normalized(&refl);
+                let refl = vec3::normalize(&refl);
                 let env =
                     del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &refl)
                         .unwrap();
@@ -76,7 +76,7 @@ fn main() -> anyhow::Result<()> {
                     &tex_data,
                 );
             } else {
-                let nrm = del_geo_core::vec3::normalized(&ray_dir);
+                let nrm = del_geo_core::vec3::normalize(&ray_dir);
                 let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
                     .unwrap();
                 let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
@@ -126,7 +126,7 @@ fn main() -> anyhow::Result<()> {
                 use del_geo_core::vec3;
                 let hit_pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
                 let hit_nrm = vec3::sub(&hit_pos, &sphere_cntr);
-                let hit_nrm = vec3::normalized(&hit_nrm);
+                let hit_nrm = vec3::normalize(&hit_nrm);
                 let mut radiance = [0.; 3];
                 use rand::Rng;
                 use rand::SeedableRng;
@@ -137,7 +137,7 @@ fn main() -> anyhow::Result<()> {
                         &[rng.gen::<f32>(), rng.gen::<f32>()],
                     )
                     .into();
-                    let refl_dir = vec3::normalized(&refl_dir);
+                    let refl_dir = vec3::normalize(&refl_dir);
                     let env = del_geo_core::mat4_col_major::transform_homogeneous(
                         &transform_env,
                         &refl_dir,
@@ -154,10 +154,10 @@ fn main() -> anyhow::Result<()> {
                     );
                     radiance = vec3::add(&radiance, &c);
                 }
-                vec3::scale(&mut radiance, 1. / (samples as f32));
+                vec3::scale_in_place(&mut radiance, 1. / (samples as f32));
                 pix.0 = radiance;
             } else {
-                let nrm = del_geo_core::vec3::normalized(&ray_dir);
+                let nrm = del_geo_core::vec3::normalize(&ray_dir);
                 let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
                     .unwrap();
                 let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
@@ -256,7 +256,7 @@ fn main() -> anyhow::Result<()> {
                 use del_geo_core::vec3;
                 let hit_pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
                 let hit_nrm = vec3::sub(&hit_pos, &sphere_cntr);
-                let hit_nrm = vec3::normalized(&hit_nrm);
+                let hit_nrm = vec3::normalize(&hit_nrm);
 
                 let mut result = [0.; 3];
                 for _isample in 0..samples {
@@ -276,28 +276,21 @@ fn main() -> anyhow::Result<()> {
 
                     // joint probability of point (samplex,sampley)
                     let pdf = grayscale[pixely * texw + pixelx][0] / itgr;
-
                     if costheta <= 0. || pdf <= 0. {
                         continue;
                     }
-
                     // (1/pi) * (radiance* costhta*sinteta * 4pi)/pdf = 4*radiance*costheta*sintheta/pdf
-
                     let mut radiance = img[pixely * texw + pixelx].0;
-
                     let sintheta = (1. - costheta * costheta).sqrt();
-
-                    del_geo_core::vec3::scale(&mut radiance, costheta);
-                    del_geo_core::vec3::scale(&mut radiance, sintheta);
-                    del_geo_core::vec3::scale(&mut radiance, 1. / pdf);
-
-                    result = del_geo_core::vec3::add(&result, &radiance);
+                    vec3::scale_in_place(&mut radiance, costheta);
+                    vec3::scale_in_place(&mut radiance, sintheta);
+                    vec3::scale_in_place(&mut radiance, 1. / pdf);
+                    result = vec3::add(&result, &radiance);
                 }
-
-                del_geo_core::vec3::scale(&mut result, 4. / samples as f32);
+                vec3::scale_in_place(&mut result, 4. / samples as f32);
                 pix.0 = result;
             } else {
-                let nrm = del_geo_core::vec3::normalized(&ray_dir);
+                let nrm = del_geo_core::vec3::normalize(&ray_dir);
                 let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
                     .unwrap();
                 let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);

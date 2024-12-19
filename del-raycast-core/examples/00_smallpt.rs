@@ -176,7 +176,7 @@ fn main() {
         ), //Lite
     ];
     let mut rng = rand::thread_rng();
-    let samps = 64;
+    let samps = 16;
     let cam = del_raycast_core::cam3::Camera3::new(
         1024,
         768,

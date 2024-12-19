@@ -207,12 +207,9 @@ fn test_sphere_mapping() {
         for j in 0..3 {
             dir[j] = (i + 1) as Real;
         }
-
-        del_geo_core::vec3::normalize(&mut dir);
-
+        del_geo_core::vec3::normalize_in_place(&mut dir);
         let uv = unitsphere2envmap(&dir);
         let udir = envmap2unitsphere(&uv);
-
         assert!((dir[0] - udir[0]).abs() < 0.001);
         assert!((dir[1] - udir[1]).abs() < 0.001);
         assert!((dir[2] - udir[2]).abs() < 0.001);
