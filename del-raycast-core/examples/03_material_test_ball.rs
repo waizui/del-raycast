@@ -73,13 +73,12 @@ fn parse_material(scene: &pbrt4::Scene, shape: &pbrt4::ShapeEntity) -> Material 
     }
 }
 
-fn parse() -> anyhow::Result<(Vec<Shape>, f32, [f32; 16], (usize, usize))> {
+fn parse() -> anyhow::Result<(Vec<Shape>, del_raycast_core::parse_pbrt::Camera)> {
     let path_file = "asset/material-testball/scene-v4.pbrt";
     let scene = pbrt4::Scene::from_file(path_file)?;
     // dbg!(scene.shapes.len());
     let mut shapes: Vec<Shape> = vec![];
-    let (camera_fov, transform_cam_glbl2lcl, img_shape) =
-        del_raycast_core::parse_pbrt::hoge(&scene);
+    let camera = del_raycast_core::parse_pbrt::camera(&scene);
     for shape_entity in scene.shapes.iter() {
         let transform = shape_entity.transform.to_cols_array();
         let (_, _, tri2vtx, vtx2xyz, _) =
@@ -102,20 +101,21 @@ fn parse() -> anyhow::Result<(Vec<Shape>, f32, [f32; 16], (usize, usize))> {
             bvhnode2aabb,
             material: mat,
         };
-
         shapes.push(shape);
     }
-    Ok((shapes, camera_fov, transform_cam_glbl2lcl, img_shape))
+    Ok((shapes, camera))
 }
 
 fn main() -> anyhow::Result<()> {
-    let (shapes, camera_fov, transform_cam_glbl2lcl, img_shape) = parse()?;
+    let (shapes, camera) = parse()?;
     {
         let mut tri2vtx: Vec<usize> = vec![];
         let mut vtx2xyz: Vec<f32> = vec![];
         for trimesh in shapes.iter() {
-            let t =
-                del_geo_core::mat4_col_major::mult_mat(&transform_cam_glbl2lcl, &trimesh.transform);
+            let t = del_geo_core::mat4_col_major::mult_mat(
+                &camera.transform_world2camlcl,
+                &trimesh.transform,
+            );
             let trimesh_vtx2xyz = del_msh_core::vtx2xyz::transform(&trimesh.vtx2xyz, &t);
             del_msh_core::uniform_mesh::merge(
                 &mut tri2vtx,
@@ -134,17 +134,17 @@ fn main() -> anyhow::Result<()> {
     }
 
     let transform_cam_lcl2glbl =
-        del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
+        del_geo_core::mat4_col_major::try_inverse(&camera.transform_world2camlcl).unwrap();
     let img_shape = (540, 360);
     let mut img = Vec::<image::Rgb<f32>>::new();
     img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
     for ih in 0..img_shape.1 {
         for iw in 0..img_shape.0 {
-            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray_plus_z(
                 (iw, ih),
                 (0., 0.),
                 img_shape,
-                camera_fov,
+                camera.camera_fov,
                 transform_cam_lcl2glbl,
             );
             // compute intersection below

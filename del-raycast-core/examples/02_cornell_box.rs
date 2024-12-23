@@ -31,10 +31,9 @@ impl TriangleMesh {
 
 fn parse_pbrt_file(
     file_path: &str,
-) -> anyhow::Result<(Vec<TriangleMesh>, f32, [f32; 16], (usize, usize))> {
+) -> anyhow::Result<(Vec<TriangleMesh>, del_raycast_core::parse_pbrt::Camera)> {
     let scene = pbrt4::Scene::from_file(file_path)?;
-    let (camera_fov, transform_cam_glbl2lcl, img_shape) =
-        del_raycast_core::parse_pbrt::hoge(&scene);
+    let camera = del_raycast_core::parse_pbrt::camera(&scene);
     let mut materials: Vec<[f32; 3]> = vec![];
     for material in scene.materials {
         match material {
@@ -79,7 +78,7 @@ fn parse_pbrt_file(
         }
         shapes[i_shape].reflectance = materials[material_idx];
     }
-    Ok((shapes, camera_fov, transform_cam_glbl2lcl, img_shape))
+    Ok((shapes, camera))
 }
 
 fn intersection_ray_against_trimeshs(
@@ -278,15 +277,14 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene<'_> {
 
 fn main() -> anyhow::Result<()> {
     let pbrt_file_path = "asset/cornell-box/scene-v4.pbrt";
-    let (trimeshs, camera_fov, transform_cam_glbl2lcl, img_shape) =
-        parse_pbrt_file(pbrt_file_path)?;
+    let (trimeshs, camera) = parse_pbrt_file(pbrt_file_path)?;
     {
         // make obj file
         let mut tri2vtx: Vec<usize> = vec![];
         let mut vtx2xyz: Vec<f32> = vec![];
         for trimesh in trimeshs.iter() {
             let trimesh_vtx2xyz =
-                del_msh_core::vtx2xyz::transform(&trimesh.vtx2xyz, &transform_cam_glbl2lcl);
+                del_msh_core::vtx2xyz::transform(&trimesh.vtx2xyz, &camera.transform_world2camlcl);
             del_msh_core::uniform_mesh::merge(
                 &mut tri2vtx,
                 &mut vtx2xyz,
@@ -302,8 +300,6 @@ fn main() -> anyhow::Result<()> {
             3,
         )?;
     }
-    let transform_cam_lcl2glbl =
-        del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
     use itertools::Itertools;
     // Get the area light source
     let i_trimesh_light = trimeshs
@@ -322,19 +318,14 @@ fn main() -> anyhow::Result<()> {
     let img_gt = image::open("asset/cornell-box/TungstenRender.exr")
         .unwrap()
         .to_rgb32f();
+    let img_shape = camera.img_shape;
     assert!(img_gt.dimensions() == (img_shape.0 as u32, img_shape.1 as u32));
     let img_gt = img_gt.to_vec();
     {
         // computing depth image
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             let pix = arrayref::array_mut_ref![pix, 0, 3];
-            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                (i_pix % img_shape.0, i_pix / img_shape.0),
-                (0., 0.),
-                img_shape,
-                camera_fov,
-                transform_cam_lcl2glbl,
-            );
+            let (ray_org, ray_dir) = camera.ray(i_pix, [0f32; 2]);
             // compute intersection below
             let mut t_min = f32::INFINITY;
             let mut color_buf = [0.0, 0.0, 0.0];
@@ -369,13 +360,7 @@ fn main() -> anyhow::Result<()> {
         // computing reflectance image
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             let pix = arrayref::array_mut_ref![pix, 0, 3];
-            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                (i_pix % img_shape.0, i_pix / img_shape.0),
-                (0., 0.),
-                img_shape,
-                camera_fov,
-                transform_cam_lcl2glbl,
-            );
+            let (ray_org, ray_dir) = camera.ray(i_pix, [0f32; 2]);
             let Some((_t, i_trimsh, _i_tri)) =
                 intersection_ray_against_trimeshs(&ray_org, &ray_dir, &trimeshs)
             else {
@@ -391,13 +376,13 @@ fn main() -> anyhow::Result<()> {
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         del_canvas::write_hdr_file("target/02_cornell_box_color.hdr", img_shape, &img_out)?;
     }
+    let scene = MyScene {
+        trimesh: &trimeshs,
+        tri2cumsumarea: &tri2cumsumarea,
+        i_trimesh_light,
+    };
     println!("---------------------path tracer---------------------");
     for i in 1..4 {
-        let scene = MyScene {
-            trimesh: &trimeshs,
-            tri2cumsumarea: &tri2cumsumarea,
-            i_trimesh_light,
-        };
         // path tracing sampling material
         let num_sample = 8 * i;
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
@@ -407,15 +392,12 @@ fn main() -> anyhow::Result<()> {
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let mut l_o = [0., 0., 0.];
             for _i_sample in 0..num_sample {
-                let (ray0_org, ray0_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                    (i_pix % img_shape.0, i_pix / img_shape.0),
-                    (
+                let (ray0_org, ray0_dir) = camera.ray(
+                    i_pix,
+                    [
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    ),
-                    img_shape,
-                    camera_fov,
-                    transform_cam_lcl2glbl,
+                    ],
                 );
                 let rad = del_raycast_core::monte_carlo_integrator::radiance_pt(
                     &ray0_org, &ray0_dir, &scene, 65, &mut rng,
@@ -445,11 +427,6 @@ fn main() -> anyhow::Result<()> {
     }
     println!("---------------------MIS sampling---------------------");
     for i in 1..4 {
-        let scene = MyScene {
-            trimesh: &trimeshs,
-            tri2cumsumarea: &tri2cumsumarea,
-            i_trimesh_light,
-        };
         let num_sample = 8 * i;
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             let pix = arrayref::array_mut_ref!(pix, 0, 3);
@@ -458,18 +435,15 @@ fn main() -> anyhow::Result<()> {
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let mut l_o = [0., 0., 0.];
             for _i_sample in 0..num_sample {
-                let (ray0_org, ray0_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                    (i_pix % img_shape.0, i_pix / img_shape.0),
-                    (
+                let (ray0_org, ray0_dir) = camera.ray(
+                    i_pix,
+                    [
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    ),
-                    img_shape,
-                    camera_fov,
-                    transform_cam_lcl2glbl,
+                    ],
                 );
                 let rad = del_raycast_core::monte_carlo_integrator::radiance_mis(
-                    &ray0_org, &ray0_dir, &scene, &mut rng,
+                    &ray0_org, &ray0_dir, &scene, 65, &mut rng,
                 );
                 l_o = del_geo_core::vec3::add(&l_o, &rad);
             }
@@ -496,11 +470,6 @@ fn main() -> anyhow::Result<()> {
     }
     println!("---------------------NEE tracer---------------------");
     for i in 1..4 {
-        let scene = MyScene {
-            trimesh: &trimeshs,
-            tri2cumsumarea: &tri2cumsumarea,
-            i_trimesh_light,
-        };
         // path tracing next event estimation
         let num_sample = 8 * i;
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
@@ -510,18 +479,15 @@ fn main() -> anyhow::Result<()> {
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let mut l_o = [0., 0., 0.];
             for _i_sample in 0..num_sample {
-                let (ray0_org, ray0_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                    (i_pix % img_shape.0, i_pix / img_shape.0),
-                    (
+                let (ray0_org, ray0_dir) = camera.ray(
+                    i_pix,
+                    [
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    ),
-                    img_shape,
-                    camera_fov,
-                    transform_cam_lcl2glbl,
+                    ],
                 );
                 let rad = del_raycast_core::monte_carlo_integrator::radiance_nee(
-                    &ray0_org, &ray0_dir, &scene, &mut rng,
+                    &ray0_org, &ray0_dir, &scene, 65, &mut rng,
                 );
                 l_o = del_geo_core::vec3::add(&l_o, &rad);
             }
@@ -558,15 +524,12 @@ fn main() -> anyhow::Result<()> {
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let mut l_o = [0., 0., 0.];
             for _i_sample in 0..num_sample {
-                let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                    (i_pix % img_shape.0, i_pix / img_shape.0),
-                    (
+                let (ray_org, ray_dir) = camera.ray(
+                    i_pix,
+                    [
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    ),
-                    img_shape,
-                    camera_fov,
-                    transform_cam_lcl2glbl,
+                    ],
                 );
                 let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
                     hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir, &trimeshs)
@@ -627,15 +590,12 @@ fn main() -> anyhow::Result<()> {
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let mut l_o = [0., 0., 0.];
             for _i_sample in 0..num_sample {
-                let (ray0_org, ray0_dir) = del_raycast_core::cam_pbrt::cast_ray(
-                    (i_pix % img_shape.0, i_pix / img_shape.0),
-                    (
+                let (ray0_org, ray0_dir) = camera.ray(
+                    i_pix,
+                    [
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    ),
-                    img_shape,
-                    camera_fov,
-                    transform_cam_lcl2glbl,
+                    ],
                 );
                 let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
                     hit_position_normal_emission_at_ray_intersection(
@@ -670,11 +630,6 @@ fn main() -> anyhow::Result<()> {
                     &l_o,
                     &vec3::element_wise_mult(&hit2_emission, &brdf.scale(cos_hit / pdf)),
                 );
-                /*
-                l_o = vec3::add(
-                    &l_o,
-                    &vec3::element_wise_mult(&hit2_emission, &trimeshs[hit_itrimsh].reflectance));
-                 */
             }
             *pix = vec3::scale(&l_o, 1.0 / num_sample as f32);
         };

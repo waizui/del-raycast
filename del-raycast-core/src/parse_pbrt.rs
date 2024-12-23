@@ -1,6 +1,15 @@
 use ply_rs::ply::PropertyAccess;
+pub struct Camera {
+    pub camera_fov: f32,
+    /// this transformation actually flip the scene in x direction.
+    /// the camera is looking from -z to +z direction
+    pub transform_world2camlcl: [f32; 16],
+    ///
+    pub transform_camlcl2world: [f32; 16],
+    pub img_shape: (usize, usize),
+}
 
-pub fn hoge(scene: &pbrt4::Scene) -> (f32, [f32; 16], (usize, usize)) {
+pub fn camera(scene: &pbrt4::Scene) -> Camera {
     let camera = scene.camera.as_ref().unwrap();
     let transform = camera.transform.to_cols_array();
     // dbg!(&camera.params);
@@ -12,7 +21,28 @@ pub fn hoge(scene: &pbrt4::Scene) -> (f32, [f32; 16], (usize, usize)) {
     };
     let film = scene.film.as_ref().unwrap();
     let img_shape = (film.xresolution as usize, film.yresolution as usize);
-    (fov, transform, img_shape)
+    Camera {
+        camera_fov: fov,
+        transform_world2camlcl: transform,
+        transform_camlcl2world: del_geo_core::mat4_col_major::try_inverse(&transform).unwrap(),
+        img_shape,
+    }
+}
+
+impl Camera {
+    /// # Return
+    /// `(ray_org: [f32;3], ray_dir [f32;3])`
+    /// ray_org: camera focus point
+    /// ray_dir: ray direction (not normalized)
+    pub fn ray(&self, i_pix: usize, offset: [f32; 2]) -> ([f32; 3], [f32; 3]) {
+        crate::cam_pbrt::cast_ray_plus_z(
+            (i_pix % self.img_shape.0, i_pix / self.img_shape.0),
+            offset.into(),
+            self.img_shape,
+            self.camera_fov,
+            self.transform_camlcl2world,
+        )
+    }
 }
 
 #[allow(clippy::type_complexity)]

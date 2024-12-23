@@ -19,12 +19,12 @@ fn main() -> anyhow::Result<()> {
     // --------------------
     let camera_fov = 20.0;
     // let transform_cam_lcl2glbl = del_geo_core::mat4_col_major::from_translate(&[0., 0., -5.]);
-    let transform_cam_glbl2lcl: [f32; 16] = [
+    let transform_world2camlcl: [f32; 16] = [
         0.721367, -0.373123, -0.583445, -0., -0., 0.842456, -0.538765, -0., -0.692553, -0.388647,
         -0.60772, -0., 0.0258668, -0.29189, 5.43024, 1.,
     ];
-    let transform_cam_lcl2glbl =
-        del_geo_core::mat4_col_major::try_inverse(&transform_cam_glbl2lcl).unwrap();
+    let transform_camlcl2world =
+        del_geo_core::mat4_col_major::try_inverse(&transform_world2camlcl).unwrap();
     let transform_env = [
         -0.386527, 0., 0.922278, 0., -0.922278, 0., -0.386527, 0., 0., 1., 0., 0., 0., 0., 0., 1.,
     ];
@@ -43,12 +43,12 @@ fn main() -> anyhow::Result<()> {
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let ih = i_pix / img_shape.0;
             let iw = i_pix % img_shape.0;
-            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray_plus_z(
                 (iw, ih),
                 (0., 0.),
                 img_shape,
                 camera_fov,
-                transform_cam_lcl2glbl,
+                transform_camlcl2world,
             );
             let t = del_geo_nalgebra::sphere::intersection_ray(
                 &nalgebra::Vector3::<f32>::from(sphere_cntr),
@@ -109,12 +109,12 @@ fn main() -> anyhow::Result<()> {
         let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
             let ih = i_pix / img_shape.0;
             let iw = i_pix % img_shape.0;
-            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray_plus_z(
                 (iw, ih),
                 (0., 0.),
                 img_shape,
                 camera_fov,
-                transform_cam_lcl2glbl,
+                transform_camlcl2world,
             );
             let t = del_geo_nalgebra::sphere::intersection_ray(
                 &nalgebra::Vector3::<f32>::from(sphere_cntr),
@@ -239,12 +239,12 @@ fn main() -> anyhow::Result<()> {
             let ih = i_pix / img_shape.0;
             let iw = i_pix % img_shape.0;
 
-            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray(
+            let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray_plus_z(
                 (iw, ih),
                 (0., 0.),
                 img_shape,
                 camera_fov,
-                transform_cam_lcl2glbl,
+                transform_camlcl2world,
             );
             let t = del_geo_nalgebra::sphere::intersection_ray(
                 &nalgebra::Vector3::<f32>::from(sphere_cntr),

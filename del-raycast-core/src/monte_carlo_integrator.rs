@@ -75,6 +75,7 @@ pub fn radiance_nee<RNG, SCENE>(
     ray_org_ini: &[f32; 3],
     ray_dir_ini: &[f32; 3],
     scene: &SCENE,
+    max_depth: usize,
     rng: &mut RNG,
 ) -> [f32; 3]
 where
@@ -86,7 +87,7 @@ where
     let mut throughput = [1f32; 3];
     let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
     let mut ray_dir: [f32; 3] = ray_dir_ini.to_owned();
-    for i_depth in 0..4 {
+    for i_depth in 0..max_depth {
         use del_geo_core::vec3;
         let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
             scene.hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir)
@@ -138,6 +139,7 @@ pub fn radiance_mis<RNG, SCENE>(
     ray_org_ini: &[f32; 3],
     ray_dir_ini: &[f32; 3],
     scene: &SCENE,
+    max_depth: usize,
     rng: &mut RNG,
 ) -> [f32; 3]
 where
@@ -149,7 +151,7 @@ where
     let mut throughput = [1f32; 3];
     let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
     let mut ray_dir: [f32; 3] = ray_dir_ini.to_owned();
-    for i_depth in 0..4 {
+    for i_depth in 0..max_depth {
         use del_geo_core::vec3;
         let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
             scene.hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir)
@@ -176,7 +178,7 @@ where
                 rad_out = rad_out.add(&lo_light.element_wise_mult(&throughput));
             }
         }
-        {
+        if hit_emission == [0f32; 3] {
             let (ray_dir_brdf, brdf, pdf_brdf) = scene.sample_brdf(hit_nrm, hit_itrimsh, rng);
             if let Some((hit_pos_light, hit_nrm_light, hit_emission, _hit_itrimsh_light)) = scene
                 .hit_position_normal_emission_at_ray_intersection(&hit_pos_w_offset, &ray_dir_brdf)
