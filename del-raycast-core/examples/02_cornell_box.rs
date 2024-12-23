@@ -1,185 +1,82 @@
-#[derive(Debug, Clone, Default)]
-struct TriangleMesh {
-    vtx2xyz: Vec<f32>,
-    tri2vtx: Vec<usize>,
-    vtx2nrm: Vec<f32>,
-    reflectance: [f32; 3],
-    spectrum: Option<([f32; 3], bool)>,
-}
+use del_raycast_core::area_light::AreaLight;
+use del_raycast_core::shape::ShapeEntity;
 
-impl TriangleMesh {
-    fn normal_at(&self, pos: &[f32; 3], i_tri: usize) -> [f32; 3] {
-        assert!(i_tri < self.tri2vtx.len() / 3);
-        let iv0 = self.tri2vtx[i_tri * 3];
-        let iv1 = self.tri2vtx[i_tri * 3 + 1];
-        let iv2 = self.tri2vtx[i_tri * 3 + 2];
-        let p0 = arrayref::array_ref![self.vtx2xyz, iv0 * 3, 3];
-        let p1 = arrayref::array_ref![self.vtx2xyz, iv1 * 3, 3];
-        let p2 = arrayref::array_ref![self.vtx2xyz, iv2 * 3, 3];
-        let bc = del_geo_core::tri3::to_barycentric_coords(p0, p1, p2, pos);
-        let n0 = arrayref::array_ref![self.vtx2nrm, iv0 * 3, 3];
-        let n1 = arrayref::array_ref![self.vtx2nrm, iv1 * 3, 3];
-        let n2 = arrayref::array_ref![self.vtx2nrm, iv2 * 3, 3];
-        let n = [
-            bc[0] * n0[0] + bc[1] * n1[0] + bc[2] * n2[0],
-            bc[0] * n0[1] + bc[1] * n1[1] + bc[2] * n2[1],
-            bc[0] * n0[2] + bc[1] * n1[2] + bc[2] * n2[2],
-        ];
-        del_geo_core::vec3::normalize(&n)
-    }
+struct MyScene {
+    shape_entities: Vec<ShapeEntity>,
+    materials: Vec<del_raycast_core::material::Material>,
+    area_lights: Vec<AreaLight>,
+    tri2cumsumarea: Vec<f32>,
+    i_trimesh_light: usize,
 }
 
 fn parse_pbrt_file(
     file_path: &str,
-) -> anyhow::Result<(Vec<TriangleMesh>, del_raycast_core::parse_pbrt::Camera)> {
+) -> anyhow::Result<(MyScene, del_raycast_core::parse_pbrt::Camera)> {
     let scene = pbrt4::Scene::from_file(file_path)?;
     let camera = del_raycast_core::parse_pbrt::camera(&scene);
-    let mut materials: Vec<[f32; 3]> = vec![];
-    for material in scene.materials {
-        match material {
-            pbrt4::types::Material {
-                name,
-                attributes,
-                reflectance,
-                ..
-            } => {
-                materials.push(reflectance.get_rgb());
-            }
-            _ => {}
-        }
-    }
-    let mut lights: Vec<([f32; 3], bool)> = vec![];
-    for area_light in scene.area_lights {
-        match area_light.clone() {
-            pbrt4::types::AreaLight::Diffuse {
-                filename,
-                two_sided,
-                spectrum,
-                scale,
-            } => {
-                let spectrum =
-                    del_raycast_core::parse_pbrt::spectrum_from_light_entity(&area_light).unwrap();
-                lights.push((spectrum, two_sided));
-            }
-            _ => {}
-        }
-    }
-    let mut shapes: Vec<TriangleMesh> = vec![Default::default(); scene.shapes.len()];
-    for (i_shape, shape_entity) in scene.shapes.iter().enumerate() {
-        let (material_idx, light_idx, tri2vtx, vtx2xyz, normal) =
-            del_raycast_core::parse_pbrt::trimesh3_from_shape_entity(&shape_entity, file_path)
-                .unwrap();
-        shapes[i_shape].vtx2xyz = vtx2xyz.clone();
-        shapes[i_shape].tri2vtx = tri2vtx.clone();
-        shapes[i_shape].vtx2nrm = normal.clone();
-        if let Some(light_idx) = light_idx {
-            // dbg!(i_shape, light_idx);
-            shapes[i_shape].spectrum = Some(lights[light_idx]);
-        }
-        shapes[i_shape].reflectance = materials[material_idx];
-    }
-    Ok((shapes, camera))
-}
-
-fn intersection_ray_against_trimeshs(
-    ray_org: &[f32; 3],
-    ray_dir: &[f32; 3],
-    trimeshs: &[TriangleMesh],
-) -> Option<(f32, usize, usize)> {
-    let mut t_trimsh_tri = Option::<(f32, usize, usize)>::None;
-    for (i_trimesh, trimesh) in trimeshs.iter().enumerate() {
-        let Some((t, i_tri)) = del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
-            &ray_org,
-            &ray_dir,
-            &trimesh.tri2vtx,
-            &trimesh.vtx2xyz,
-        ) else {
-            continue;
-        };
-        match t_trimsh_tri {
-            None => {
-                if t > 0. {
-                    t_trimsh_tri = Some((t, i_trimesh, i_tri));
-                }
-            }
-            Some((t_min, _, _)) => {
-                if t < t_min && t > 0. {
-                    t_trimsh_tri = Some((t, i_trimesh, i_tri));
-                }
+    let materials = del_raycast_core::parse_pbrt::parse_material(&scene);
+    let area_lights = del_raycast_core::parse_pbrt::parse_area_light(&scene);
+    let shape_entities = del_raycast_core::parse_pbrt::parse_shapes(&scene);
+    //
+    use itertools::Itertools;
+    // Get the area light source
+    let i_trimesh_light = shape_entities
+        .iter()
+        .enumerate()
+        .find_or_first(|(_i_trimesh, trimsh)| trimsh.area_light_index.is_some())
+        .unwrap()
+        .0;
+    let tri2cumsumarea = {
+        match &shape_entities[i_trimesh_light].shape {
+            del_raycast_core::shape::ShapeType::TriangleMesh {
+                tri2vtx, vtx2xyz, ..
+            } => del_msh_core::sampling::cumulative_area_sum(tri2vtx, vtx2xyz, 3),
+            _ => {
+                todo!();
             }
         }
-    }
-    t_trimsh_tri
-}
-
-fn hit_position_normal_emission_at_ray_intersection(
-    ray_org: &[f32; 3],
-    ray_dir: &[f32; 3],
-    trimeshs: &[TriangleMesh],
-) -> Option<([f32; 3], [f32; 3], [f32; 3], usize)> {
-    let Some((ray_t, i_trimsh_hit, i_tri_hit)) =
-        intersection_ray_against_trimeshs(&ray_org, &ray_dir, &trimeshs)
-    else {
-        return None;
     };
-    let hit_pos = vec3::axpy(ray_t, &ray_dir, &ray_org);
-    let hit_nrm = trimeshs[i_trimsh_hit].normal_at(&hit_pos, i_tri_hit);
-    use del_geo_core::vec3;
-    let mut hit_emission = [0f32; 3];
-    if let Some((spectrum, is_both_side)) = trimeshs[i_trimsh_hit].spectrum {
-        // hit light
-        if is_both_side || del_geo_core::vec3::dot(&hit_nrm, ray_dir) < 0.0 {
-            hit_emission = spectrum;
-        }
-    }
-    let hit_nrm = if vec3::dot(&hit_nrm, &ray_dir) > 0. {
-        [-hit_nrm[0], -hit_nrm[1], -hit_nrm[2]]
-    } else {
-        hit_nrm
+    let scene = MyScene {
+        shape_entities,
+        area_lights,
+        materials,
+        i_trimesh_light,
+        tri2cumsumarea,
     };
-    Some((hit_pos, hit_nrm, hit_emission, i_trimsh_hit))
-}
-
-fn sampling_light(
-    tri2cumsumarea: &[f32],
-    r2: [f32; 2],
-    triangle_mesh: &TriangleMesh,
-) -> ([f32; 3], [f32; 3]) {
-    let (i_tri_light, r1, r2) =
-        del_msh_core::sampling::sample_uniformly_trimesh(&tri2cumsumarea, r2[0], r2[1]);
-    let (p0, p1, p2) = del_msh_core::trimesh3::to_corner_points(
-        &triangle_mesh.tri2vtx,
-        &triangle_mesh.vtx2xyz,
-        i_tri_light,
-    );
-    let light_pos = del_geo_core::tri3::position_from_barycentric_coords(
-        &p0,
-        &p1,
-        &p2,
-        &[1. - r1 - r2, r1, r2],
-    );
-    let light_nrm = triangle_mesh.normal_at(&light_pos, i_tri_light);
-    let light_pos = del_geo_core::vec3::axpy(1.0e-3, &light_nrm, &light_pos);
-    (light_pos, light_nrm)
+    Ok((scene, camera))
 }
 
 fn radiance_from_light<RNG>(
     hit_pos: &[f32; 3],
-    trimeshs: &[TriangleMesh],
+    shape_entities: &[ShapeEntity],
+    area_lights: &[AreaLight],
     rng: &mut RNG,
     tri2cumsumarea: &[f32],
-    i_trimesh_light: usize,
+    i_shape_entity_light: usize,
 ) -> Option<([f32; 3], f32, [f32; 3])>
 where
     RNG: rand::Rng,
 {
     use del_geo_core::vec3;
     let &area_light = tri2cumsumarea.last().unwrap();
-    let (light_pos, light_nrm) = sampling_light(
-        &tri2cumsumarea,
-        [rng.gen(), rng.gen()],
-        &trimeshs[i_trimesh_light],
-    );
+    let (light_pos, light_nrm) = {
+        match &shape_entities[i_shape_entity_light].shape {
+            del_raycast_core::shape::ShapeType::TriangleMesh {
+                tri2vtx,
+                vtx2xyz,
+                vtx2nrm,
+            } => del_raycast_core::area_light::sampling_light(
+                &tri2cumsumarea,
+                [rng.gen(), rng.gen()],
+                tri2vtx,
+                vtx2xyz,
+                vtx2nrm,
+            ),
+            _ => {
+                todo!()
+            }
+        }
+    };
     //
     let uvec_hit2light = vec3::normalize(&vec3::sub(&light_pos, &hit_pos));
     let cos_theta_light = -vec3::dot(&light_nrm, &uvec_hit2light);
@@ -187,36 +84,68 @@ where
         return None;
     } // backside of light
     if let Some((_t, i_trimsh, _i_tri)) =
-        intersection_ray_against_trimeshs(&hit_pos, &uvec_hit2light, &trimeshs)
+        del_raycast_core::shape::intersection_ray_against_shape_entities(
+            &hit_pos,
+            &uvec_hit2light,
+            shape_entities,
+        )
     {
-        if i_trimsh != i_trimesh_light {
+        if i_trimsh != i_shape_entity_light {
             return None;
         }
     } else {
         return None;
     };
-    let l_i = trimeshs[i_trimesh_light].spectrum.unwrap().0;
+    let i_area_light = shape_entities[i_shape_entity_light]
+        .area_light_index
+        .unwrap();
+    let l_i = area_lights[i_area_light].spectrum_rgb.unwrap();
     let pdf = 1.0 / area_light;
     let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
     let geo_term = cos_theta_light / r2;
-    // dbg!(light_pos.sub(&hit_pos));
-    use del_geo_core::vec3::Vec3;
     Some((l_i, pdf / geo_term, uvec_hit2light))
 }
 
-struct MyScene<'a> {
-    trimesh: &'a [TriangleMesh],
-    tri2cumsumarea: &'a [f32],
-    i_trimesh_light: usize,
-}
-
-impl del_raycast_core::monte_carlo_integrator::Scene for MyScene<'_> {
+impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
+    /// * Return
+    /// position, normal, emission, i_shape_entity
     fn hit_position_normal_emission_at_ray_intersection(
         &self,
         ray_org: &[f32; 3],
         ray_dir: &[f32; 3],
     ) -> Option<([f32; 3], [f32; 3], [f32; 3], usize)> {
-        hit_position_normal_emission_at_ray_intersection(ray_org, ray_dir, self.trimesh)
+        let Some((t, i_shape_entity, i_elem)) =
+            del_raycast_core::shape::intersection_ray_against_shape_entities(
+                ray_org,
+                ray_dir,
+                &self.shape_entities,
+            )
+        else {
+            return None;
+        };
+        let hit_pos = vec3::axpy(t, &ray_dir, &ray_org);
+        let hit_nrm = del_raycast_core::shape::normal_at(
+            &self.shape_entities[i_shape_entity],
+            &hit_pos,
+            i_elem,
+        );
+        use del_geo_core::vec3;
+        let mut hit_emission = [0f32; 3];
+        if let Some(i_area_light) = self.shape_entities[i_shape_entity].area_light_index {
+            let al = &self.area_lights[i_area_light];
+            if let Some(spectrum) = al.spectrum_rgb {
+                // hit light
+                if al.two_sided || del_geo_core::vec3::dot(&hit_nrm, ray_dir) < 0.0 {
+                    hit_emission = spectrum;
+                }
+            }
+        }
+        let hit_nrm = if vec3::dot(&hit_nrm, &ray_dir) > 0. {
+            [-hit_nrm[0], -hit_nrm[1], -hit_nrm[2]]
+        } else {
+            hit_nrm
+        };
+        Some((hit_pos, hit_nrm, hit_emission, i_shape_entity))
     }
     fn pdf_light(
         &self,
@@ -247,17 +176,30 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene<'_> {
         )
         .into();
         use del_geo_core::vec3::Vec3;
-        let brdf = self.trimesh[itrimsh]
-            .reflectance
-            .scale(std::f32::consts::FRAC_1_PI);
+        let i_material = self.shape_entities[itrimsh].material_index.unwrap();
+        let brdf = match &self.materials[i_material] {
+            del_raycast_core::material::Material::Diff(mat) => {
+                mat.reflectance.scale(std::f32::consts::FRAC_1_PI)
+            }
+            _ => {
+                todo!()
+            }
+        };
         let cos_hit = ray_dir_next.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
         let pdf = cos_hit * std::f32::consts::FRAC_1_PI;
         (ray_dir_next, brdf, pdf)
     }
     fn brdf(&self, itrimsh: usize) -> [f32; 3] {
         use del_geo_core::vec3::Vec3;
-        let reflectance1 = self.trimesh[itrimsh].reflectance;
-        reflectance1.scale(1. / std::f32::consts::PI)
+        let i_material = self.shape_entities[itrimsh].material_index.unwrap();
+        match &self.materials[i_material] {
+            del_raycast_core::material::Material::Diff(mat) => {
+                mat.reflectance.scale(1. / std::f32::consts::PI)
+            }
+            _ => {
+                todo!()
+            }
+        }
     }
 
     fn radiance_from_light<Rng: rand::Rng>(
@@ -267,9 +209,10 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene<'_> {
     ) -> Option<([f32; 3], f32, [f32; 3])> {
         radiance_from_light(
             hit_pos,
-            self.trimesh,
+            &self.shape_entities,
+            &self.area_lights,
             rng,
-            self.tri2cumsumarea,
+            &self.tri2cumsumarea,
             self.i_trimesh_light,
         )
     }
@@ -277,43 +220,13 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene<'_> {
 
 fn main() -> anyhow::Result<()> {
     let pbrt_file_path = "asset/cornell-box/scene-v4.pbrt";
-    let (trimeshs, camera) = parse_pbrt_file(pbrt_file_path)?;
-    {
-        // make obj file
-        let mut tri2vtx: Vec<usize> = vec![];
-        let mut vtx2xyz: Vec<f32> = vec![];
-        for trimesh in trimeshs.iter() {
-            let trimesh_vtx2xyz =
-                del_msh_core::vtx2xyz::transform(&trimesh.vtx2xyz, &camera.transform_world2camlcl);
-            del_msh_core::uniform_mesh::merge(
-                &mut tri2vtx,
-                &mut vtx2xyz,
-                &trimesh.tri2vtx,
-                &trimesh_vtx2xyz,
-                3,
-            );
-        }
-        del_msh_core::io_obj::save_tri2vtx_vtx2xyz(
-            "target/02_cornell_box.obj",
-            &tri2vtx,
-            &vtx2xyz,
-            3,
-        )?;
-    }
-    use itertools::Itertools;
-    // Get the area light source
-    let i_trimesh_light = trimeshs
-        .iter()
-        .enumerate()
-        .find_or_first(|(_i_trimesh, trimsh)| trimsh.spectrum.is_some())
-        .unwrap()
-        .0;
-    let tri2cumsumarea = del_msh_core::sampling::cumulative_area_sum(
-        &trimeshs[i_trimesh_light].tri2vtx,
-        &trimeshs[i_trimesh_light].vtx2xyz,
-        3,
-    );
-    let area_light = tri2cumsumarea.last().unwrap().clone();
+    let (scene, camera) = parse_pbrt_file(pbrt_file_path)?;
+    del_raycast_core::shape::write_wavefront_obj_file_from_camera_view(
+        "target/02_cornell_box.obj",
+        &scene.shape_entities,
+        &camera.transform_world2camlcl,
+    )?;
+    let area_light = scene.tri2cumsumarea.last().unwrap().clone();
     dbg!(area_light);
     let img_gt = image::open("asset/cornell-box/TungstenRender.exr")
         .unwrap()
@@ -326,26 +239,16 @@ fn main() -> anyhow::Result<()> {
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             let pix = arrayref::array_mut_ref![pix, 0, 3];
             let (ray_org, ray_dir) = camera.ray(i_pix, [0f32; 2]);
-            // compute intersection below
-            let mut t_min = f32::INFINITY;
-            let mut color_buf = [0.0, 0.0, 0.0];
-            for trimesh in trimeshs.iter() {
-                let Some((t, _i_tri)) =
-                    del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
-                        &ray_org,
-                        &ray_dir,
-                        &trimesh.tri2vtx,
-                        &trimesh.vtx2xyz,
-                    )
-                else {
-                    continue;
-                };
-                if t < t_min {
-                    t_min = t;
-                    color_buf = trimesh.reflectance;
-                }
-            }
-            let v = t_min * 0.05;
+            let Some((t, _i_shape_entity, _i_elem)) =
+                del_raycast_core::shape::intersection_ray_against_shape_entities(
+                    &ray_org,
+                    &ray_dir,
+                    &scene.shape_entities,
+                )
+            else {
+                return;
+            };
+            let v = t * 0.05;
             *pix = [v; 3];
         };
         let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
@@ -361,12 +264,29 @@ fn main() -> anyhow::Result<()> {
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             let pix = arrayref::array_mut_ref![pix, 0, 3];
             let (ray_org, ray_dir) = camera.ray(i_pix, [0f32; 2]);
-            let Some((_t, i_trimsh, _i_tri)) =
-                intersection_ray_against_trimeshs(&ray_org, &ray_dir, &trimeshs)
+            let Some((_t, i_shape_entity, _i_elem)) =
+                del_raycast_core::shape::intersection_ray_against_shape_entities(
+                    &ray_org,
+                    &ray_dir,
+                    &scene.shape_entities,
+                )
             else {
                 return;
             };
-            *pix = trimeshs[i_trimsh].reflectance;
+            let i_material = scene.shape_entities[i_shape_entity].material_index.unwrap();
+            assert!(
+                i_material < scene.materials.len(),
+                "{} {}",
+                i_material,
+                scene.materials.len()
+            );
+            let reflectance = match &scene.materials[i_material] {
+                del_raycast_core::material::Material::Diff(mat) => mat.reflectance,
+                _ => {
+                    todo!()
+                }
+            };
+            *pix = reflectance;
         };
         let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
         use rayon::prelude::*;
@@ -376,11 +296,6 @@ fn main() -> anyhow::Result<()> {
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         del_canvas::write_hdr_file("target/02_cornell_box_color.hdr", img_shape, &img_out)?;
     }
-    let scene = MyScene {
-        trimesh: &trimeshs,
-        tri2cumsumarea: &tri2cumsumarea,
-        i_trimesh_light,
-    };
     println!("---------------------path tracer---------------------");
     for i in 1..4 {
         // path tracing sampling material
@@ -531,8 +446,9 @@ fn main() -> anyhow::Result<()> {
                         del_raycast_core::sampling::tent(rng.gen::<f32>()),
                     ],
                 );
+                use del_raycast_core::monte_carlo_integrator::Scene;
                 let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
-                    hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir, &trimeshs)
+                    scene.hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir)
                 else {
                     continue;
                 };
@@ -541,14 +457,13 @@ fn main() -> anyhow::Result<()> {
                 let hit_pos = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
                 if let Some((li, pdf_light, uvec_hit2light)) = radiance_from_light(
                     &hit_pos,
-                    &trimeshs,
+                    &scene.shape_entities,
+                    &scene.area_lights,
                     &mut rng,
-                    &tri2cumsumarea,
-                    i_trimesh_light,
+                    &scene.tri2cumsumarea,
+                    scene.i_trimesh_light,
                 ) {
-                    let brdf_hit = trimeshs[hit_itrimsh]
-                        .reflectance
-                        .scale(1. / std::f32::consts::PI);
+                    let brdf_hit = scene.brdf(hit_itrimsh);
                     let cos_hit = vec3::dot(&uvec_hit2light, &hit_nrm);
                     let li_r = vec3::element_wise_mult(&li, &brdf_hit.scale(cos_hit / pdf_light));
                     l_o = vec3::add(&l_o, &li_r);
@@ -598,9 +513,7 @@ fn main() -> anyhow::Result<()> {
                     ],
                 );
                 let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
-                    hit_position_normal_emission_at_ray_intersection(
-                        &ray0_org, &ray0_dir, &trimeshs,
-                    )
+                    scene.hit_position_normal_emission_at_ray_intersection(&ray0_org, &ray0_dir)
                 else {
                     continue;
                 };
@@ -611,19 +524,17 @@ fn main() -> anyhow::Result<()> {
                 )
                 .into();
                 let hit_pos_w_offset = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
-                let Some((hit2_pos, hit2_nrm, hit2_emission, hit2_itrimsh)) =
-                    hit_position_normal_emission_at_ray_intersection(
+                let Some((_hit2_pos, _hit2_nrm, hit2_emission, _hit2_itrimsh)) = scene
+                    .hit_position_normal_emission_at_ray_intersection(
                         &hit_pos_w_offset,
                         &ray_dir_next,
-                        &trimeshs,
                     )
                 else {
                     continue;
                 };
                 use del_geo_core::vec3::Vec3;
-                let brdf = trimeshs[hit_itrimsh]
-                    .reflectance
-                    .scale(std::f32::consts::FRAC_1_PI);
+                use del_raycast_core::monte_carlo_integrator::Scene;
+                let brdf = scene.brdf(hit_itrimsh);
                 let cos_hit = ray_dir_next.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
                 let pdf = cos_hit * std::f32::consts::FRAC_1_PI;
                 l_o = vec3::add(

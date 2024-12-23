@@ -1,4 +1,7 @@
+use crate::area_light::AreaLight;
+use crate::shape::ShapeEntity;
 use ply_rs::ply::PropertyAccess;
+
 pub struct Camera {
     pub camera_fov: f32,
     /// this transformation actually flip the scene in x direction.
@@ -131,4 +134,138 @@ pub fn spectrum_from_light_entity(area_light_entity: &pbrt4::types::AreaLight) -
             }
         },
     }
+}
+
+fn get_f32_array3_from_material_param(
+    key: &str,
+    dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
+) -> anyhow::Result<[f32; 3]> {
+    let mp = match dict_mp.get(key) {
+        Some(mp) => mp,
+        None => {
+            return Err(anyhow::Error::msg("hoge"));
+        }
+    };
+    assert_eq!(mp.1, key.to_string());
+    let res: [f32; 3] =
+        mp.2.split_whitespace()
+            .map(|v| v.parse::<f32>().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+    Ok(res)
+}
+
+fn get_f32_from_material_param(
+    key: &str,
+    dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
+) -> anyhow::Result<f32> {
+    let mp = match dict_mp.get(key) {
+        Some(mp) => mp,
+        None => {
+            return Err(anyhow::Error::msg("hoge"));
+        }
+    };
+    Ok(mp.2.parse::<f32>()?)
+}
+
+pub fn parse_material(scene: &pbrt4::Scene) -> Vec<crate::material::Material> {
+    let mut materials = Vec::<crate::material::Material>::with_capacity(scene.materials.len());
+    for mat in scene.materials.iter() {
+        match mat.attributes.as_str() {
+            "diffuse" => {
+                let mat = crate::material::DiffuseMaterial {
+                    reflectance: mat.reflectance.get_rgb(),
+                };
+                materials.push(crate::material::Material::Diff(mat));
+            }
+            "conductor" => {
+                let uroughness = get_f32_from_material_param("uroughness", &mat.params).unwrap();
+                let vroughness = get_f32_from_material_param("vroughness", &mat.params).unwrap();
+                let k = get_f32_array3_from_material_param("k", &mat.params).unwrap();
+                let eta = get_f32_array3_from_material_param("eta", &mat.params).unwrap();
+                let mat = crate::material::ConductorMaterial {
+                    uroughness,
+                    vroughness,
+                    k,
+                    eta,
+                };
+                materials.push(crate::material::Material::Cond(mat))
+            }
+            _ => {}
+        }
+    }
+    materials
+}
+
+pub fn parse_area_light(scene: &pbrt4::Scene) -> Vec<AreaLight> {
+    let mut area_lights = Vec::<AreaLight>::new();
+    for area_light in &scene.area_lights {
+        match area_light {
+            pbrt4::types::AreaLight::Diffuse {
+                filename,
+                two_sided,
+                spectrum,
+                scale,
+            } => {
+                dbg!(filename, two_sided, spectrum, scale);
+                let spectrum_rgb = if let Some(spectrum) = spectrum {
+                    match spectrum {
+                        pbrt4::param::Spectrum::Rgb(rgb) => Some(rgb),
+                        pbrt4::param::Spectrum::Blackbody(_i) => {
+                            todo!()
+                        }
+                    }
+                } else {
+                    None
+                };
+                let al = AreaLight {
+                    spectrum_rgb: spectrum_rgb.copied(),
+                    two_sided: *two_sided,
+                };
+                area_lights.push(al);
+            }
+        }
+    }
+    area_lights
+}
+
+pub fn parse_shapes(scene: &pbrt4::Scene) -> Vec<ShapeEntity> {
+    let mut shape_entities = Vec::<ShapeEntity>::new();
+    for (i_shape, shape_entity) in scene.shapes.iter().enumerate() {
+        dbg!(
+            i_shape,
+            shape_entity.material_index,
+            shape_entity.area_light_index
+        );
+        let shape = match &shape_entity.params {
+            pbrt4::types::Shape::TriangleMesh {
+                indices,
+                positions,
+                normals,
+                ..
+            } => crate::shape::ShapeType::TriangleMesh {
+                tri2vtx: indices.iter().map(|&v| v as usize).collect(),
+                vtx2xyz: positions.clone(),
+                vtx2nrm: normals.clone(),
+            },
+            pbrt4::types::Shape::Sphere { radius, .. } => {
+                crate::shape::ShapeType::Sphere { radius: *radius }
+            }
+            _ => {
+                panic!()
+            }
+        };
+        let transform_objlcl2world = shape_entity.transform.as_ref().to_owned();
+        let transform_world2objlcl =
+            del_geo_core::mat4_col_major::try_inverse(&transform_objlcl2world).unwrap();
+        shape_entities.push(ShapeEntity {
+            shape,
+            transform_objlcl2world,
+            transform_world2objlcl,
+            material_index: shape_entity.material_index,
+            area_light_index: shape_entity.area_light_index,
+        });
+    }
+    shape_entities
 }
