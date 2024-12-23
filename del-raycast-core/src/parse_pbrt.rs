@@ -4,7 +4,7 @@ pub struct Camera {
     /// this transformation actually flip the scene in x direction.
     /// the camera is looking from -z to +z direction
     pub transform_world2camlcl: [f32; 16],
-    ///
+    /// inverse of `transform_world2camlcl'
     pub transform_camlcl2world: [f32; 16],
     pub img_shape: (usize, usize),
 }
