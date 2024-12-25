@@ -24,6 +24,7 @@ MakeNamedMaterial "Smooth"
     "float vroughness" [ 0.01 ]
     "float uroughness" [ 0.01 ]
     "bool remaproughness" [ false ]
+    "rgb reflectance" [ 0.3 0.3 0.3 ]    
     "rgb k" [ 3.912949 2.452848 2.142188 ]
     "rgb eta" [ 0.200438 0.924033 1.102212 ]
 MakeNamedMaterial "Glossy"
@@ -31,6 +32,7 @@ MakeNamedMaterial "Glossy"
     "float vroughness" [ 0.05 ]
     "float uroughness" [ 0.05 ]
     "bool remaproughness" [ false ]
+    "rgb reflectance" [ 0.3 0.3 0.3 ]        
     "rgb k" [ 3.912949 2.452848 2.142188 ]
     "rgb eta" [ 0.200438 0.924033 1.102212 ]
 MakeNamedMaterial "Rough"
@@ -38,6 +40,7 @@ MakeNamedMaterial "Rough"
     "float vroughness" [ 0.1 ]
     "float uroughness" [ 0.1 ]
     "bool remaproughness" [ false ]
+    "rgb reflectance" [ 0.3 0.3 0.3 ]    
     "rgb k" [ 3.912949 2.452848 2.142188 ]
     "rgb eta" [ 0.200438 0.924033 1.102212 ]
 MakeNamedMaterial "Null"
@@ -48,6 +51,7 @@ MakeNamedMaterial "SuperRough"
     "float vroughness" [ 0.25 ]
     "float uroughness" [ 0.25 ]
     "bool remaproughness" [ false ]
+    "rgb reflectance" [ 0.3 0.3 0.3 ]    
     "rgb k" [ 3.912949 2.452848 2.142188 ]
     "rgb eta" [ 0.200438 0.924033 1.102212 ]
 NamedMaterial "Smooth"

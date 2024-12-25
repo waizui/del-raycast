@@ -1,90 +1,87 @@
-use del_raycast_core::shape::ShapeEntity;
-use itertools::Itertools;
-use rand::Rng;
+struct MyScene {
+    shape_entities: Vec<del_raycast_core::shape::ShapeEntity>,
+    area_lights: Vec<del_raycast_core::area_light::AreaLight>,
+    materials: Vec<del_raycast_core::material::Material>,
+}
 
 fn parse_pbrt_file(
     file_path: &str,
-) -> anyhow::Result<(
-    Vec<del_raycast_core::shape::ShapeEntity>,
-    Vec<del_raycast_core::area_light::AreaLight>,
-    del_raycast_core::parse_pbrt::Camera,
-)> {
+) -> anyhow::Result<(MyScene, del_raycast_core::parse_pbrt::Camera)> {
     let scene = pbrt4::Scene::from_file(file_path)?;
     let camera = del_raycast_core::parse_pbrt::camera(&scene);
     let materials = del_raycast_core::parse_pbrt::parse_material(&scene);
     let area_lights = del_raycast_core::parse_pbrt::parse_area_light(&scene);
     let shape_entities = del_raycast_core::parse_pbrt::parse_shapes(&scene);
-    Ok((shape_entities, area_lights, camera))
-}
-
-struct MyScene {
-    shape_entities: Vec<del_raycast_core::shape::ShapeEntity>,
-    area_lights: Vec<del_raycast_core::area_light::AreaLight>,
+    let my_scene = MyScene {
+        shape_entities,
+        area_lights,
+        materials,
+    };
+    Ok((my_scene, camera))
 }
 
 impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
-    fn brdf(&self, itrimsh: usize) -> [f32; 3] {
+    fn brdf(&self, _itrimsh: usize) -> [f32; 3] {
         todo!()
     }
 
     fn pdf_light(
         &self,
-        hit_pos: &[f32; 3],
-        hit_pos_light: &[f32; 3],
-        hit_nrm_light: &[f32; 3],
+        _hit_pos: &[f32; 3],
+        _hit_pos_light: &[f32; 3],
+        _hit_nrm_light: &[f32; 3],
     ) -> f32 {
         todo!()
     }
 
     fn sample_brdf<Rng: rand::Rng>(
         &self,
-        hit_nrm: [f32; 3],
+        obj_nrm: &[f32; 3],
+        uvec_ray_in: &[f32; 3], // direction same as nrm
         i_shape_entity: usize,
         rng: &mut Rng,
-    ) -> ([f32; 3], [f32; 3], f32) {
-        let ray_dir_next: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
-            &nalgebra::Vector3::<f32>::from(hit_nrm),
-            &[rng.gen::<f32>(), rng.gen::<f32>()],
-        )
-        .into();
-        use del_geo_core::vec3::Vec3;
+    ) -> Option<([f32; 3], [f32; 3], f32)> {
         let se = &self.shape_entities[i_shape_entity];
-        let brdf = match se.material_index {
-            Some(i_material) => [1f32; 3].scale(std::f32::consts::FRAC_1_PI),
-            None => [0f32; 3],
-        };
-        let cos_hit = ray_dir_next.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
-        let pdf = cos_hit * std::f32::consts::FRAC_1_PI;
-        (ray_dir_next, brdf, pdf)
+        let i_material = se.material_index.unwrap();
+        assert!(i_material < self.materials.len());
+        del_raycast_core::material::sample_brdf(
+            &self.materials[i_material],
+            obj_nrm,
+            uvec_ray_in,
+            rng,
+        )
     }
+
     fn hit_position_normal_emission_at_ray_intersection(
         &self,
         ray_org: &[f32; 3],
         ray_dir: &[f32; 3],
     ) -> Option<([f32; 3], [f32; 3], [f32; 3], usize)> {
-        use del_raycast_core::shape::intersection_ray_against_shape_entities;
         let Some((t, i_shape_entity, i_elem)) =
-            intersection_ray_against_shape_entities(ray_org, ray_dir, &self.shape_entities)
+            del_raycast_core::shape::intersection_ray_against_shape_entities(
+                ray_org,
+                ray_dir,
+                &self.shape_entities,
+            )
         else {
             return None;
         };
         let hit_pos_world = del_geo_core::vec3::axpy(t, &ray_dir, &ray_org);
         let se = &self.shape_entities[i_shape_entity];
-        let (hit_nrm_world) = del_raycast_core::shape::normal_at(se, &hit_pos_world, i_elem);
+        let hit_nrm_world = del_raycast_core::shape::normal_at(se, &hit_pos_world, i_elem);
         let hit_emission = if let Some(ial) = se.area_light_index {
-            match self.area_lights[ial].spectrum_rgb {
-                Some(rgb) => rgb,
-                None => [0f32; 3],
-            }
+            self.area_lights[ial]
+                .spectrum_rgb
+                .unwrap_or_else(|| [0f32; 3])
         } else {
             [0f32; 3]
         };
         Some((hit_pos_world, hit_nrm_world, hit_emission, i_shape_entity))
     }
-    fn radiance_from_light<Rng: rand::Rng>(
+    fn radiance_from_light<RNG: rand::Rng>(
         &self,
-        hit_pos_w_offset: &[f32; 3],
-        rng: &mut Rng,
+        _hit_pos_w_offset: &[f32; 3],
+        _rng: &mut RNG,
     ) -> Option<([f32; 3], f32, [f32; 3])> {
         todo!()
     }
@@ -92,14 +89,7 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
 
 fn main() -> anyhow::Result<()> {
     let pbrt_file_path = "asset/veach-mis/scene-v4.pbrt";
-    let (scene, camera) = {
-        let (shape_entities, area_lights, camera) = parse_pbrt_file(pbrt_file_path)?;
-        let scene = MyScene {
-            shape_entities,
-            area_lights,
-        };
-        (scene, camera)
-    };
+    let (scene, camera) = parse_pbrt_file(pbrt_file_path)?;
     del_raycast_core::shape::write_wavefront_obj_file_from_camera_view(
         "target/08_veach_mis.obj",
         &scene.shape_entities,
@@ -116,7 +106,7 @@ fn main() -> anyhow::Result<()> {
                 &ray_dir,
                 &scene.shape_entities,
             ) {
-                Some((t, ise, ie)) => t,
+                Some((t, _ise, _ie)) => t,
                 None => f32::INFINITY,
             };
             let v = t * 0.05;
@@ -130,10 +120,14 @@ fn main() -> anyhow::Result<()> {
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         del_canvas::write_hdr_file("target/08_veach_mis_depth.hdr", camera.img_shape, &img_out)?;
     }
+    let img_gt = image::open("asset/veach-mis/TungstenRender.exr")
+        .unwrap()
+        .to_rgb32f();
+    assert!(img_gt.dimensions() == (camera.img_shape.0 as u32, camera.img_shape.1 as u32));
     println!("---------------------path tracer---------------------");
-    for i in 1..4 {
+    for i in 1..2 {
         // path tracing sampling material
-        let num_sample = 8 * i;
+        let num_sample = 1024 * i;
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             let pix = arrayref::array_mut_ref![pix, 0, 3];
             use rand::Rng;
@@ -149,7 +143,7 @@ fn main() -> anyhow::Result<()> {
                     ],
                 );
                 let rad = del_raycast_core::monte_carlo_integrator::radiance_pt(
-                    &ray_org, &ray_dir, &scene, 65, &mut rng,
+                    &ray_org, &ray_dir, &scene, 3, &mut rng,
                 );
                 l_o = del_geo_core::vec3::add(&l_o, &rad);
             }
@@ -169,12 +163,15 @@ fn main() -> anyhow::Result<()> {
             camera.img_shape,
             &img_out,
         )?;
-        /*
-        let path_error_map = format!("target/02_cornell_box_pt_{}_error_map.hdr", num_sample);
-        del_canvas::write_hdr_file_mse_rgb_error_map(path_error_map, img_shape, &img_gt, &img_out);
+        let path_error_map = format!("target/07_veach_mis_pt_{}_error_map.hdr", num_sample);
+        del_canvas::write_hdr_file_mse_rgb_error_map(
+            path_error_map,
+            camera.img_shape,
+            &img_gt,
+            &img_out,
+        );
         let err = del_canvas::rmse_error(&img_gt, &img_out);
         println!("num_sample: {}, mse: {}", num_sample, err);
-         */
     }
     Ok(())
 }

@@ -163,32 +163,25 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
 
     fn sample_brdf<RNG>(
         &self,
-        hit_nrm: [f32; 3],
-        itrimsh: usize,
+        obj_nrm: &[f32; 3],
+        uvec_ray_in: &[f32; 3],
+        i_shape_entity: usize,
         rng: &mut RNG,
-    ) -> ([f32; 3], [f32; 3], f32)
+    ) -> Option<([f32; 3], [f32; 3], f32)>
     where
         RNG: rand::Rng,
     {
-        let ray_dir_next: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
-            &nalgebra::Vector3::<f32>::from(hit_nrm),
-            &[rng.gen::<f32>(), rng.gen::<f32>()],
+        let se = &self.shape_entities[i_shape_entity];
+        let i_material = se.material_index.unwrap();
+        assert!(i_material < self.materials.len());
+        del_raycast_core::material::sample_brdf(
+            &self.materials[i_material],
+            obj_nrm,
+            uvec_ray_in,
+            rng,
         )
-        .into();
-        use del_geo_core::vec3::Vec3;
-        let i_material = self.shape_entities[itrimsh].material_index.unwrap();
-        let brdf = match &self.materials[i_material] {
-            del_raycast_core::material::Material::Diff(mat) => {
-                mat.reflectance.scale(std::f32::consts::FRAC_1_PI)
-            }
-            _ => {
-                todo!()
-            }
-        };
-        let cos_hit = ray_dir_next.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
-        let pdf = cos_hit * std::f32::consts::FRAC_1_PI;
-        (ray_dir_next, brdf, pdf)
     }
+
     fn brdf(&self, itrimsh: usize) -> [f32; 3] {
         use del_geo_core::vec3::Vec3;
         let i_material = self.shape_entities[itrimsh].material_index.unwrap();

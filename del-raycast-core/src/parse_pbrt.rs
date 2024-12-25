@@ -182,11 +182,14 @@ pub fn parse_material(scene: &pbrt4::Scene) -> Vec<crate::material::Material> {
             "conductor" => {
                 let uroughness = get_f32_from_material_param("uroughness", &mat.params).unwrap();
                 let vroughness = get_f32_from_material_param("vroughness", &mat.params).unwrap();
+                let reflectance =
+                    get_f32_array3_from_material_param("reflectance", &mat.params).unwrap();
                 let k = get_f32_array3_from_material_param("k", &mat.params).unwrap();
                 let eta = get_f32_array3_from_material_param("eta", &mat.params).unwrap();
                 let mat = crate::material::ConductorMaterial {
                     uroughness,
                     vroughness,
+                    reflectance,
                     k,
                     eta,
                 };
@@ -203,12 +206,11 @@ pub fn parse_area_light(scene: &pbrt4::Scene) -> Vec<AreaLight> {
     for area_light in &scene.area_lights {
         match area_light {
             pbrt4::types::AreaLight::Diffuse {
-                filename,
+                filename: _filename,
                 two_sided,
                 spectrum,
-                scale,
+                scale: _scale,
             } => {
-                dbg!(filename, two_sided, spectrum, scale);
                 let spectrum_rgb = if let Some(spectrum) = spectrum {
                     match spectrum {
                         pbrt4::param::Spectrum::Rgb(rgb) => Some(rgb),
@@ -232,12 +234,7 @@ pub fn parse_area_light(scene: &pbrt4::Scene) -> Vec<AreaLight> {
 
 pub fn parse_shapes(scene: &pbrt4::Scene) -> Vec<ShapeEntity> {
     let mut shape_entities = Vec::<ShapeEntity>::new();
-    for (i_shape, shape_entity) in scene.shapes.iter().enumerate() {
-        dbg!(
-            i_shape,
-            shape_entity.material_index,
-            shape_entity.area_light_index
-        );
+    for shape_entity in scene.shapes.iter() {
         let shape = match &shape_entity.params {
             pbrt4::types::Shape::TriangleMesh {
                 indices,

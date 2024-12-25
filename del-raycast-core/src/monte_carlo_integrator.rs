@@ -9,10 +9,11 @@ pub trait Scene {
     fn brdf(&self, itrimsh: usize) -> [f32; 3];
     fn sample_brdf<Rng: rand::Rng>(
         &self,
-        hit_nrm: [f32; 3],
+        obj_nrm: &[f32; 3],
+        uvec_ray_in: &[f32; 3],
         itrimsh: usize,
         rng: &mut Rng,
-    ) -> ([f32; 3], [f32; 3], f32);
+    ) -> Option<([f32; 3], [f32; 3], f32)>;
     fn radiance_from_light<Rng: rand::Rng>(
         &self,
         hit_pos_w_offset: &[f32; 3],
@@ -50,14 +51,18 @@ where
         };
         rad_out = rad_out.add(&hit_emission.element_wise_mult(&throughput));
         //
-        let (ray_dir_next, brdf, pdf) = scene.sample_brdf(hit_nrm, hit_itrimsh, rng);
+        let Some((ray_dir_next, brdf, pdf)) = scene.sample_brdf(
+            &hit_nrm,
+            &ray_dir.scale(-1f32).normalize(),
+            hit_itrimsh,
+            rng,
+        ) else {
+            break;
+        };
         let cos_hit = ray_dir_next.dot(&hit_nrm);
         throughput = throughput.element_wise_mult(&brdf.scale(cos_hit / pdf));
         {
-            let &russian_roulette_prob = throughput
-                .iter()
-                .max_by(|&a, &b| a.partial_cmp(b).unwrap())
-                .unwrap();
+            let russian_roulette_prob = throughput.iter().fold(f32::NAN, |a, b| a.max(*b));
             if rng.gen::<f32>() < russian_roulette_prob {
                 throughput = del_geo_core::vec3::scale(&throughput, 1.0 / russian_roulette_prob);
             } else {
@@ -112,7 +117,14 @@ where
             }
         }
         let ray_dir_next = {
-            let (ray_dir_next, brdf, pdf) = scene.sample_brdf(hit_nrm, hit_itrimsh, rng);
+            let Some((ray_dir_next, brdf, pdf)) = scene.sample_brdf(
+                &hit_nrm,
+                &ray_dir.scale(-1f32).normalize(),
+                hit_itrimsh,
+                rng,
+            ) else {
+                break;
+            };
             let cos_hit = ray_dir_next.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
             throughput = throughput.element_wise_mult(&brdf.scale(cos_hit / pdf));
             ray_dir_next
@@ -179,7 +191,14 @@ where
             }
         }
         if hit_emission == [0f32; 3] {
-            let (ray_dir_brdf, brdf, pdf_brdf) = scene.sample_brdf(hit_nrm, hit_itrimsh, rng);
+            let Some((ray_dir_brdf, brdf, pdf_brdf)) = scene.sample_brdf(
+                &hit_nrm,
+                &ray_dir.scale(-1f32).normalize(),
+                hit_itrimsh,
+                rng,
+            ) else {
+                break;
+            };
             if let Some((hit_pos_light, hit_nrm_light, hit_emission, _hit_itrimsh_light)) = scene
                 .hit_position_normal_emission_at_ray_intersection(&hit_pos_w_offset, &ray_dir_brdf)
             {
@@ -195,7 +214,14 @@ where
         }
         let ray_dir_next = {
             // update throughput
-            let (ray_dir_next, brdf, pdf_brdf) = scene.sample_brdf(hit_nrm, hit_itrimsh, rng);
+            let Some((ray_dir_next, brdf, pdf_brdf)) = scene.sample_brdf(
+                &hit_nrm,
+                &ray_dir.scale(-1f32).normalize(),
+                hit_itrimsh,
+                rng,
+            ) else {
+                break;
+            };
             let cosine = ray_dir_next.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
             throughput = throughput.element_wise_mult(&brdf.scale(cosine / pdf_brdf));
             ray_dir_next
