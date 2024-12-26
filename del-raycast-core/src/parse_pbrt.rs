@@ -241,11 +241,23 @@ pub fn parse_shapes(scene: &pbrt4::Scene) -> Vec<ShapeEntity> {
                 positions,
                 normals,
                 ..
-            } => crate::shape::ShapeType::TriangleMesh {
-                tri2vtx: indices.iter().map(|&v| v as usize).collect(),
-                vtx2xyz: positions.clone(),
-                vtx2nrm: normals.clone(),
-            },
+            } => {
+                let tri2vtx: Vec<usize> = indices.iter().map(|&v| v as usize).collect();
+                let vtx2xyz = positions.clone();
+                let tri2cumsumarea = if shape_entity.area_light_index.is_some() {
+                    let tri2cumsumarea =
+                        del_msh_core::sampling::cumulative_area_sum(&tri2vtx, &vtx2xyz, 3);
+                    Some(tri2cumsumarea)
+                } else {
+                    None
+                };
+                crate::shape::ShapeType::TriangleMesh {
+                    tri2vtx,
+                    vtx2xyz,
+                    vtx2nrm: normals.clone(),
+                    tri2cumsumarea,
+                }
+            }
             pbrt4::types::Shape::Sphere { radius, .. } => {
                 crate::shape::ShapeType::Sphere { radius: *radius }
             }

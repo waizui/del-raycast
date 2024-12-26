@@ -32,6 +32,12 @@ where
     (ray_dir_next, brdf, pdf)
 }
 
+pub fn eval_brdf_diffuse(reflectance: &[f32; 3]) -> [f32; 3] {
+    del_geo_core::vec3::scale(reflectance, 1. / std::f32::consts::PI)
+}
+
+// --------------------------
+
 pub fn microfacet_beckmann_roughness_to_alpha(roughness: f32) -> f32 {
     roughness
 }
@@ -154,10 +160,41 @@ where
     Some((wo, brdf, pdf))
 }
 
+pub fn eval_brdf_rough_conductor(
+    wi: &[f32; 3],
+    wo: &[f32; 3],
+    reflectance: &[f32; 3],
+    eta: &[f32; 3],
+    k: &[f32; 3],
+    roughness: f32,
+) -> [f32; 3] {
+    use del_geo_core::vec3::Vec3;
+    if wi[2] < 0f32 {
+        return [0f32; 3];
+    }
+    let alpha = microfacet_beckmann_roughness_to_alpha(roughness);
+    let m = wi.add(&wo).scale(0.5).normalize();
+    assert!(!m[0].is_nan() && !m[1].is_nan() && !m[2].is_nan());
+    let wi_dot_m = wi.dot(&m);
+    if wi_dot_m <= 0f32 || wo[2] <= 0f32 {
+        return [0f32; 3];
+    }
+    // the masking shadow function
+    let g = microfacet_distribution_g(alpha, wi, &wo, &m);
+    assert!(!g.is_nan());
+    let d = microfacet_beckmann_d(alpha, &m);
+    assert!(!d.is_nan());
+    let f = fresnel_conductor_reflectance_rgb(eta, k, wi_dot_m);
+    let brdf = f
+        .scale(g * d * 0.25f32 / (wi[2] * wo[2]))
+        .element_wise_mult(reflectance);
+    brdf
+}
+
 pub fn sample_brdf<RNG>(
     mat: &Material,
     obj_nrm: &[f32; 3],
-    ray_in: &[f32; 3],
+    ray_in_outward_world: &[f32; 3],
     rng: &mut RNG,
 ) -> Option<([f32; 3], [f32; 3], f32)>
 where
@@ -166,13 +203,14 @@ where
     use del_geo_core::mat3_col_major;
     use del_geo_core::vec3;
     debug_assert!((vec3::norm(obj_nrm) - 1f32).abs() < 1.0e-5);
-    debug_assert!((vec3::norm(ray_in) - 1f32).abs() < 1.0e-5);
+    debug_assert!((vec3::norm(ray_in_outward_world) - 1f32).abs() < 1.0e-5);
     let transform_objlcl2world = mat3_col_major::transform_lcl2world_given_local_z(obj_nrm);
     let transform_world2objlcl = mat3_col_major::transpose(&transform_objlcl2world);
     let (ray_out_objlcl, brdf, pdf) = match mat {
         Material::Diff(a) => sample_brdf_diffuse(&a.reflectance, rng),
         Material::Cond(b) => {
-            let ray_in_objlcl = mat3_col_major::mult_vec(&transform_world2objlcl, ray_in);
+            let ray_in_objlcl =
+                mat3_col_major::mult_vec(&transform_world2objlcl, ray_in_outward_world);
             sample_brdf_rough_conductor(
                 &ray_in_objlcl,
                 &b.reflectance,
@@ -189,4 +227,46 @@ where
     assert!(!brdf[0].is_nan() && !brdf[1].is_nan() && !brdf[2].is_nan());
     let ray_out_world = mat3_col_major::mult_vec(&transform_objlcl2world, &ray_out_objlcl);
     Some((ray_out_world, brdf, pdf))
+}
+
+pub fn eval_brdf(
+    mat: &Material,
+    obj_nrm: &[f32; 3],
+    ray_in_outward_normalized: &[f32; 3],
+    ray_out: &[f32; 3],
+) -> [f32; 3] {
+    use del_geo_core::mat3_col_major;
+    use del_geo_core::vec3;
+    assert!(
+        (vec3::norm(obj_nrm) - 1f32).abs() < 1.0e-5,
+        "{}",
+        vec3::norm(obj_nrm)
+    );
+    assert!(
+        (vec3::norm(ray_in_outward_normalized) - 1f32).abs() < 1.0e-5,
+        "{}",
+        vec3::norm(ray_in_outward_normalized)
+    );
+    let transform_objlcl2world = mat3_col_major::transform_lcl2world_given_local_z(obj_nrm);
+    let transform_world2objlcl = mat3_col_major::transpose(&transform_objlcl2world);
+    let brdf = match mat {
+        Material::Diff(a) => eval_brdf_diffuse(&a.reflectance),
+        Material::Cond(b) => {
+            let ray_in_objlcl =
+                mat3_col_major::mult_vec(&transform_world2objlcl, ray_in_outward_normalized);
+            assert!((vec3::norm(&ray_in_objlcl) - 1.).abs() < 1.0e-3);
+            let ray_out_objlcl = mat3_col_major::mult_vec(&transform_world2objlcl, ray_out);
+            assert!((vec3::norm(&ray_out_objlcl) - 1.).abs() < 1.0e-3);
+            eval_brdf_rough_conductor(
+                &ray_in_objlcl,
+                &ray_out_objlcl,
+                &b.reflectance,
+                &b.eta,
+                &b.k,
+                b.uroughness,
+            )
+        }
+        Material::None => [0f32; 3],
+    };
+    brdf
 }

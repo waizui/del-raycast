@@ -6,15 +6,78 @@ pub struct ShapeEntity {
     pub area_light_index: Option<usize>,
 }
 
+impl ShapeEntity {
+    /// # Returns
+    /// (pos: [f32;3], nrm: [f32;3], pdf)
+    pub fn sample_uniform(&self, rnd: &[f32; 2]) -> ([f32; 3], [f32; 3], f32) {
+        let (pos, nrm, pdf) = self.shape.sample_uniform(rnd);
+        use del_geo_core::mat4_col_major;
+        let pos =
+            mat4_col_major::transform_homogeneous(&self.transform_objlcl2world, &pos).unwrap();
+        let nrm = mat4_col_major::transform_direction(&self.transform_objlcl2world, &nrm);
+        let m3 = mat4_col_major::to_mat3_col_major_xyz(&self.transform_objlcl2world);
+        let det = del_geo_core::mat3_col_major::determinant(&m3);
+        let nrm = del_geo_core::vec3::normalize(&nrm);
+        (pos, nrm, pdf / det)
+    }
+    pub fn cog_and_area(&self) -> ([f32; 3], f32) {
+        let m4 = self.transform_objlcl2world;
+        let m3 = del_geo_core::mat4_col_major::to_mat3_col_major_xyz(&m4);
+        let (cog, area) = self.shape.cog_and_area();
+        let det = del_geo_core::mat3_col_major::determinant(&m3);
+        let cog = del_geo_core::mat4_col_major::transform_homogeneous(&m4, &cog).unwrap();
+        let area = area * det.abs();
+        (cog, area)
+    }
+}
+
 pub enum ShapeType {
     TriangleMesh {
         tri2vtx: Vec<usize>,
         vtx2xyz: Vec<f32>,
         vtx2nrm: Vec<f32>,
+        tri2cumsumarea: Option<Vec<f32>>,
     },
     Sphere {
         radius: f32,
     },
+}
+
+impl ShapeType {
+    pub fn sample_uniform(&self, rnd: &[f32; 2]) -> ([f32; 3], [f32; 3], f32) {
+        match self {
+            ShapeType::TriangleMesh {
+                tri2vtx,
+                vtx2xyz,
+                tri2cumsumarea,
+                ..
+            } => {
+                let tri2cumsum = tri2cumsumarea.as_ref().unwrap();
+                let (i_tri, r0, r1) =
+                    del_msh_core::sampling::sample_uniformly_trimesh(tri2cumsum, rnd[0], rnd[1]);
+                let tri = del_msh_core::trimesh3::to_tri3(tri2vtx, vtx2xyz, i_tri);
+                let pos = tri.position_from_barycentric_coordinates(r0, r1);
+                let unrm = tri.unit_normal();
+                let pdf = 1.0 / tri2cumsum.last().unwrap();
+                (pos, unrm, pdf)
+            }
+            ShapeType::Sphere { radius } => {
+                let area = del_geo_core::sphere::area(*radius);
+                let nrm = del_geo_core::sphere::sample(rnd);
+                let pos = del_geo_core::vec3::scale(&nrm, *radius);
+                (pos, nrm, 1. / area)
+            }
+        }
+    }
+
+    pub fn cog_and_area(&self) -> ([f32; 3], f32) {
+        match self {
+            ShapeType::TriangleMesh {
+                tri2vtx, vtx2xyz, ..
+            } => del_msh_core::trimesh3::cog_and_area(&tri2vtx, vtx2xyz).unwrap(),
+            ShapeType::Sphere { radius } => ([0f32; 3], del_geo_core::sphere::area(*radius)),
+        }
+    }
 }
 
 /// # Return

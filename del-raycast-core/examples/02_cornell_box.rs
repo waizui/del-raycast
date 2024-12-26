@@ -1,3 +1,4 @@
+use del_geo_core::vec3;
 use del_raycast_core::area_light::AreaLight;
 use del_raycast_core::shape::ShapeEntity;
 
@@ -5,8 +6,7 @@ struct MyScene {
     shape_entities: Vec<ShapeEntity>,
     materials: Vec<del_raycast_core::material::Material>,
     area_lights: Vec<AreaLight>,
-    tri2cumsumarea: Vec<f32>,
-    i_trimesh_light: usize,
+    i_shape_entity_light: usize,
 }
 
 fn parse_pbrt_file(
@@ -40,70 +40,9 @@ fn parse_pbrt_file(
         shape_entities,
         area_lights,
         materials,
-        i_trimesh_light,
-        tri2cumsumarea,
+        i_shape_entity_light: i_trimesh_light,
     };
     Ok((scene, camera))
-}
-
-fn radiance_from_light<RNG>(
-    hit_pos: &[f32; 3],
-    shape_entities: &[ShapeEntity],
-    area_lights: &[AreaLight],
-    rng: &mut RNG,
-    tri2cumsumarea: &[f32],
-    i_shape_entity_light: usize,
-) -> Option<([f32; 3], f32, [f32; 3])>
-where
-    RNG: rand::Rng,
-{
-    use del_geo_core::vec3;
-    let &area_light = tri2cumsumarea.last().unwrap();
-    let (light_pos, light_nrm) = {
-        match &shape_entities[i_shape_entity_light].shape {
-            del_raycast_core::shape::ShapeType::TriangleMesh {
-                tri2vtx,
-                vtx2xyz,
-                vtx2nrm,
-            } => del_raycast_core::area_light::sampling_light(
-                &tri2cumsumarea,
-                [rng.gen(), rng.gen()],
-                tri2vtx,
-                vtx2xyz,
-                vtx2nrm,
-            ),
-            _ => {
-                todo!()
-            }
-        }
-    };
-    //
-    let uvec_hit2light = vec3::normalize(&vec3::sub(&light_pos, &hit_pos));
-    let cos_theta_light = -vec3::dot(&light_nrm, &uvec_hit2light);
-    if cos_theta_light < 0. {
-        return None;
-    } // backside of light
-    if let Some((_t, i_trimsh, _i_tri)) =
-        del_raycast_core::shape::intersection_ray_against_shape_entities(
-            &hit_pos,
-            &uvec_hit2light,
-            shape_entities,
-        )
-    {
-        if i_trimsh != i_shape_entity_light {
-            return None;
-        }
-    } else {
-        return None;
-    };
-    let i_area_light = shape_entities[i_shape_entity_light]
-        .area_light_index
-        .unwrap();
-    let l_i = area_lights[i_area_light].spectrum_rgb.unwrap();
-    let pdf = 1.0 / area_light;
-    let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
-    let geo_term = cos_theta_light / r2;
-    Some((l_i, pdf / geo_term, uvec_hit2light))
 }
 
 impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
@@ -152,19 +91,29 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
         hit_pos: &[f32; 3],
         hit_pos_light: &[f32; 3],
         hit_nrm_light: &[f32; 3],
+        i_shape_entity: usize,
     ) -> f32 {
         use del_geo_core::vec3;
         let vec_obj2light = vec3::sub(hit_pos_light, hit_pos);
         let uvec_obj2light = vec3::normalize(&vec_obj2light);
         let distance = del_geo_core::edge3::length(&hit_pos, &hit_pos_light);
         let geo_term = -del_geo_core::vec3::dot(&uvec_obj2light, &hit_nrm_light) / distance.powi(2);
-        1.0 / self.tri2cumsumarea.last().unwrap() / geo_term
+        let se = &self.shape_entities[self.i_shape_entity_light];
+        let area = match &se.shape {
+            del_raycast_core::shape::ShapeType::TriangleMesh { tri2cumsumarea, .. } => {
+                tri2cumsumarea.as_ref().unwrap().last().unwrap()
+            }
+            _ => {
+                todo!()
+            }
+        };
+        1.0 / area / geo_term
     }
 
     fn sample_brdf<RNG>(
         &self,
         obj_nrm: &[f32; 3],
-        uvec_ray_in: &[f32; 3],
+        uvec_ray_in_outward: &[f32; 3],
         i_shape_entity: usize,
         rng: &mut RNG,
     ) -> Option<([f32; 3], [f32; 3], f32)>
@@ -177,37 +126,73 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
         del_raycast_core::material::sample_brdf(
             &self.materials[i_material],
             obj_nrm,
-            uvec_ray_in,
+            uvec_ray_in_outward,
             rng,
         )
     }
 
-    fn brdf(&self, itrimsh: usize) -> [f32; 3] {
-        use del_geo_core::vec3::Vec3;
-        let i_material = self.shape_entities[itrimsh].material_index.unwrap();
-        match &self.materials[i_material] {
-            del_raycast_core::material::Material::Diff(mat) => {
-                mat.reflectance.scale(1. / std::f32::consts::PI)
-            }
-            _ => {
-                todo!()
-            }
-        }
+    fn eval_brdf(
+        &self,
+        i_shape_entity: usize,
+        obj_nrm: &[f32; 3],
+        ray_in_outward_normalized: &[f32; 3],
+        ray_out_normalized: &[f32; 3],
+    ) -> [f32; 3] {
+        assert!(
+            (vec3::norm(ray_in_outward_normalized) - 1f32).abs() < 1.0e-5,
+            "{}",
+            vec3::norm(ray_in_outward_normalized)
+        );
+        let i_material = self.shape_entities[i_shape_entity].material_index.unwrap();
+        del_raycast_core::material::eval_brdf(
+            &self.materials[i_material],
+            obj_nrm,
+            ray_in_outward_normalized,
+            ray_out_normalized,
+        )
     }
 
+    /// # Return
+    /// - `Some(radiance: [f32;3], pdf: f32, uvec_hit2light:[f32;3])`
+    ///    - `pdf: f32` the pdf is computed on the unit hemisphere (pdf of light / geometric term)
+    /// - `None`
     fn radiance_from_light<Rng: rand::Rng>(
         &self,
         hit_pos: &[f32; 3],
         rng: &mut Rng,
     ) -> Option<([f32; 3], f32, [f32; 3])> {
-        radiance_from_light(
-            hit_pos,
-            &self.shape_entities,
-            &self.area_lights,
-            rng,
-            &self.tri2cumsumarea,
-            self.i_trimesh_light,
-        )
+        use del_geo_core::vec3;
+        let (light_pos, light_nrm, pdf) =
+            self.shape_entities[self.i_shape_entity_light].sample_uniform(&[rng.gen(), rng.gen()]);
+        let uvec_hit2light = vec3::normalize(&vec3::sub(&light_pos, &hit_pos));
+        let cos_theta_light = -vec3::dot(&light_nrm, &uvec_hit2light);
+        if cos_theta_light < 0. {
+            return None;
+        } // backside of light
+        if let Some((t, i_shape_entity, _i_tri)) =
+            del_raycast_core::shape::intersection_ray_against_shape_entities(
+                &hit_pos,
+                &uvec_hit2light,
+                &self.shape_entities,
+            )
+        {
+            if i_shape_entity != self.i_shape_entity_light {
+                return None;
+            }
+            let light_pos2 = vec3::axpy(t, &uvec_hit2light, hit_pos);
+            if del_geo_core::edge3::length(&light_pos, &light_pos2) > 1.0e-3 {
+                return None;
+            }
+        } else {
+            return None;
+        };
+        let i_area_light = self.shape_entities[self.i_shape_entity_light]
+            .area_light_index
+            .unwrap();
+        let l_i = self.area_lights[i_area_light].spectrum_rgb.unwrap();
+        let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
+        let geo_term = cos_theta_light / r2;
+        Some((l_i, pdf / geo_term, uvec_hit2light))
     }
 }
 
@@ -219,8 +204,8 @@ fn main() -> anyhow::Result<()> {
         &scene.shape_entities,
         &camera.transform_world2camlcl,
     )?;
-    let area_light = scene.tri2cumsumarea.last().unwrap().clone();
-    dbg!(area_light);
+    // let area_light = scene.tri2cumsumarea.last().unwrap().clone();
+    // dbg!(area_light);
     let img_gt = image::open("asset/cornell-box/TungstenRender.exr")
         .unwrap()
         .to_rgb32f();
@@ -448,15 +433,15 @@ fn main() -> anyhow::Result<()> {
                 l_o = vec3::add(&l_o, &hit_emission);
                 use del_geo_core::vec3;
                 let hit_pos = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
-                if let Some((li, pdf_light, uvec_hit2light)) = radiance_from_light(
-                    &hit_pos,
-                    &scene.shape_entities,
-                    &scene.area_lights,
-                    &mut rng,
-                    &scene.tri2cumsumarea,
-                    scene.i_trimesh_light,
-                ) {
-                    let brdf_hit = scene.brdf(hit_itrimsh);
+                if let Some((li, pdf_light, uvec_hit2light)) =
+                    scene.radiance_from_light(&hit_pos, &mut rng)
+                {
+                    let brdf_hit = scene.eval_brdf(
+                        hit_itrimsh,
+                        &hit_nrm,
+                        &ray_dir.scale(-1.).normalize(),
+                        &uvec_hit2light,
+                    );
                     let cos_hit = vec3::dot(&uvec_hit2light, &hit_nrm);
                     let li_r = vec3::element_wise_mult(&li, &brdf_hit.scale(cos_hit / pdf_light));
                     l_o = vec3::add(&l_o, &li_r);
@@ -527,7 +512,12 @@ fn main() -> anyhow::Result<()> {
                 };
                 use del_geo_core::vec3::Vec3;
                 use del_raycast_core::monte_carlo_integrator::Scene;
-                let brdf = scene.brdf(hit_itrimsh);
+                let brdf = scene.eval_brdf(
+                    hit_itrimsh,
+                    &hit_nrm,
+                    &ray0_dir.scale(-1.).normalize(),
+                    &ray_dir_next,
+                );
                 let cos_hit = ray_dir_next.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
                 let pdf = cos_hit * std::f32::consts::FRAC_1_PI;
                 l_o = vec3::add(

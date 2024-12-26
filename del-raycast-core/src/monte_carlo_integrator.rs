@@ -6,7 +6,13 @@ pub trait Scene {
         ray_dir: &[f32; 3],
     ) -> Option<([f32; 3], [f32; 3], [f32; 3], usize)>;
 
-    fn brdf(&self, itrimsh: usize) -> [f32; 3];
+    fn eval_brdf(
+        &self,
+        itrimsh: usize,
+        obj_nrm: &[f32; 3],
+        ray_in_outward_normlized: &[f32; 3],
+        ray_out_normalized: &[f32; 3],
+    ) -> [f32; 3];
     fn sample_brdf<Rng: rand::Rng>(
         &self,
         obj_nrm: &[f32; 3],
@@ -14,6 +20,11 @@ pub trait Scene {
         itrimsh: usize,
         rng: &mut Rng,
     ) -> Option<([f32; 3], [f32; 3], f32)>;
+
+    /// # Return
+    /// - `Some(radiance: [f32;3], pdf: f32, uvec_hit2light:[f32;3])`
+    ///    - `pdf: f32` the pdf is computed on the unit hemisphere (pdf of light / geometric term)
+    /// - `None`
     fn radiance_from_light<Rng: rand::Rng>(
         &self,
         hit_pos_w_offset: &[f32; 3],
@@ -24,6 +35,7 @@ pub trait Scene {
         hit_pos: &[f32; 3],
         hit_pos_light: &[f32; 3],
         hit_nrm_light: &[f32; 3],
+        i_shape_entity: usize,
     ) -> f32;
 }
 
@@ -109,7 +121,12 @@ where
             if let Some((li_light, pdf_light, uvec_hit2light)) =
                 scene.radiance_from_light(&hit_pos_w_offset, rng)
             {
-                let brdf_hit = scene.brdf(hit_itrimsh);
+                let brdf_hit = scene.eval_brdf(
+                    hit_itrimsh,
+                    &hit_nrm,
+                    &ray_dir.scale(-1.).normalize(),
+                    &uvec_hit2light,
+                );
                 let cos_hit = vec3::dot(&uvec_hit2light, &hit_nrm);
                 let lo_light =
                     vec3::element_wise_mult(&brdf_hit, &li_light.scale(cos_hit / pdf_light));
@@ -179,7 +196,12 @@ where
             if let Some((li_light, pdf_light, uvec_hit2light)) =
                 scene.radiance_from_light(&hit_pos_w_offset, rng)
             {
-                let brdf_hit = scene.brdf(hit_itrimsh);
+                let brdf_hit = scene.eval_brdf(
+                    hit_itrimsh,
+                    &hit_nrm,
+                    &ray_dir.scale(-1.).normalize(),
+                    &uvec_hit2light,
+                );
                 let cos_hit = vec3::dot(&uvec_hit2light, &hit_nrm);
                 let pdf_brdf = cos_hit * std::f32::consts::FRAC_1_PI;
                 let mis_weight_light = pdf_light / (pdf_light + pdf_brdf);
@@ -199,12 +221,17 @@ where
             ) else {
                 break;
             };
-            if let Some((hit_pos_light, hit_nrm_light, hit_emission, _hit_itrimsh_light)) = scene
+            if let Some((hit_pos_light, hit_nrm_light, hit_emission, hit_itrimsh_light)) = scene
                 .hit_position_normal_emission_at_ray_intersection(&hit_pos_w_offset, &ray_dir_brdf)
             {
                 if hit_emission != [0f32; 3] {
                     let cos_hit = ray_dir_brdf.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
-                    let pdf_light = scene.pdf_light(&hit_pos, &hit_pos_light, &hit_nrm_light);
+                    let pdf_light = scene.pdf_light(
+                        &hit_pos,
+                        &hit_pos_light,
+                        &hit_nrm_light,
+                        hit_itrimsh_light,
+                    );
                     let mis_weight_brdf = pdf_brdf / (pdf_brdf + pdf_light);
                     let lo_brdf = hit_emission
                         .element_wise_mult(&brdf.scale(cos_hit / pdf_brdf * mis_weight_brdf));
