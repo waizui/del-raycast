@@ -74,7 +74,7 @@ impl ShapeType {
         match self {
             ShapeType::TriangleMesh {
                 tri2vtx, vtx2xyz, ..
-            } => del_msh_core::trimesh3::cog_and_area(&tri2vtx, vtx2xyz).unwrap(),
+            } => del_msh_core::trimesh3::cog_and_area(tri2vtx, vtx2xyz).unwrap(),
             ShapeType::Sphere { radius } => ([0f32; 3], del_geo_core::sphere::area(*radius)),
         }
     }

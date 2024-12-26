@@ -173,22 +173,20 @@ pub fn eval_brdf_rough_conductor(
         return [0f32; 3];
     }
     let alpha = microfacet_beckmann_roughness_to_alpha(roughness);
-    let m = wi.add(&wo).scale(0.5).normalize();
+    let m = wi.add(wo).scale(0.5).normalize();
     assert!(!m[0].is_nan() && !m[1].is_nan() && !m[2].is_nan());
     let wi_dot_m = wi.dot(&m);
     if wi_dot_m <= 0f32 || wo[2] <= 0f32 {
         return [0f32; 3];
     }
     // the masking shadow function
-    let g = microfacet_distribution_g(alpha, wi, &wo, &m);
+    let g = microfacet_distribution_g(alpha, wi, wo, &m);
     assert!(!g.is_nan());
     let d = microfacet_beckmann_d(alpha, &m);
     assert!(!d.is_nan());
     let f = fresnel_conductor_reflectance_rgb(eta, k, wi_dot_m);
-    let brdf = f
-        .scale(g * d * 0.25f32 / (wi[2] * wo[2]))
-        .element_wise_mult(reflectance);
-    brdf
+    f.scale(g * d * 0.25f32 / (wi[2] * wo[2]))
+        .element_wise_mult(reflectance)
 }
 
 pub fn sample_brdf<RNG>(
@@ -249,7 +247,7 @@ pub fn eval_brdf(
     );
     let transform_objlcl2world = mat3_col_major::transform_lcl2world_given_local_z(obj_nrm);
     let transform_world2objlcl = mat3_col_major::transpose(&transform_objlcl2world);
-    let brdf = match mat {
+    match mat {
         Material::Diff(a) => eval_brdf_diffuse(&a.reflectance),
         Material::Cond(b) => {
             let ray_in_objlcl =
@@ -267,6 +265,5 @@ pub fn eval_brdf(
             )
         }
         Material::None => [0f32; 3],
-    };
-    brdf
+    }
 }
