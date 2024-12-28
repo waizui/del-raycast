@@ -10,6 +10,7 @@ struct MyScene {
     area_lights: Vec<del_raycast_core::area_light::AreaLight>,
     materials: Vec<del_raycast_core::material::Material>,
     area_light_geometries: Vec<AreaLightGeometry>,
+    is_light_sample_uniform: bool,
 }
 
 fn parse_pbrt_file(
@@ -39,12 +40,13 @@ fn parse_pbrt_file(
         area_lights,
         materials,
         area_light_geometries,
+        is_light_sample_uniform: false,
     };
     Ok((my_scene, camera))
 }
 
 impl MyScene {
-    fn hoge(&self, hit_pos: &[f32; 3]) -> Vec<f32> {
+    fn build_area_light_importance_heuristic(&self, hit_pos: &[f32; 3]) -> Vec<f32> {
         let mut al2mag = vec![0f32; self.area_light_geometries.len() + 1];
         for ial in 0..self.area_light_geometries.len() {
             let area = self.area_light_geometries[ial].area;
@@ -57,6 +59,99 @@ impl MyScene {
         }
         al2mag
     }
+
+    /// # Return
+    /// - `Some(radiance: [f32;3], pdf_usphere: f32, uvec_hit2light:[f32;3])`
+    ///    - `pdf_usphere: f32` the pdf is computed on the unit hemisphere (pdf of light / geometric term)
+    /// - `None`
+    fn sample_light_uniform<Rng: rand::Rng>(
+        &self,
+        i_shape_entity_light: usize,
+        pos_observe: &[f32; 3],
+        rng: &mut Rng,
+    ) -> Option<([f32; 3], f32, [f32; 3])> {
+        use del_geo_core::vec3;
+        let (pos_light, nrm_light, pdf_shape) =
+            self.shape_entities[i_shape_entity_light].sample_uniform(&[rng.gen(), rng.gen()]);
+        let uvec_hit2light = vec3::normalize(&vec3::sub(&pos_light, &pos_observe));
+        let cos_theta_light = -vec3::dot(&nrm_light, &uvec_hit2light);
+        if cos_theta_light < 0. {
+            return None;
+        } // backside of light
+        if !del_raycast_core::shape::is_visible(
+            &self.shape_entities,
+            pos_observe,
+            &pos_light,
+            i_shape_entity_light,
+        ) {
+            return None;
+        }
+        let r2 = del_geo_core::edge3::squared_length(&pos_light, &pos_observe);
+        let geo_term = cos_theta_light / r2;
+        let i_area_light = self.shape_entities[i_shape_entity_light]
+            .area_light_index
+            .unwrap();
+        let l_i = self.area_lights[i_area_light].spectrum_rgb.unwrap();
+        Some((l_i, pdf_shape / geo_term, uvec_hit2light))
+    }
+
+    fn pdf_light_uniform(
+        &self,
+        i_shape_entity_light: usize,
+        pos_light: &[f32; 3],
+        nrm_light: &[f32; 3],
+        pos_observe: &[f32; 3],
+    ) -> f32 {
+        use del_geo_core::vec3;
+        use del_geo_core::vec3::Vec3;
+        let ial = self.shape_entities[i_shape_entity_light]
+            .area_light_index
+            .unwrap();
+        let pdf1_obj = 1.0 / self.area_light_geometries[ial].area;
+        let r2 = del_geo_core::edge3::squared_length(&pos_light, &pos_observe);
+        let uvec_hit2light = pos_light.sub(&pos_observe).normalize();
+        let cos_theta_light = -vec3::dot(&nrm_light, &uvec_hit2light);
+        if cos_theta_light <= 0. {
+            return f32::EPSILON;
+        } // backside of light
+        let geo_term = cos_theta_light / r2;
+        pdf1_obj / geo_term
+    }
+
+    /// # Returns
+    /// (pdf_usphere: f32)
+    /// pdf_usphere
+    fn sample_light_visible<Rng: rand::Rng>(
+        &self,
+        i_shape_entity_light: usize,
+        pos_observe: &[f32; 3],
+        rng: &mut Rng,
+    ) -> Option<([f32; 3], f32, [f32; 3])> {
+        // sampling light on the unit sphere around `pos_observe`
+        let Some((uvec_obs2light, pos_light, pdf_usphere)) = self.shape_entities
+            [i_shape_entity_light]
+            .sample_visible(pos_observe, &[rng.gen(), rng.gen()])
+        else {
+            return None;
+        };
+        // cast a shadow ray
+        if !del_raycast_core::shape::is_visible(
+            &self.shape_entities,
+            pos_observe,
+            &pos_light,
+            i_shape_entity_light,
+        ) {
+            return None;
+        }
+        let i_area_light = self.shape_entities[i_shape_entity_light]
+            .area_light_index
+            .unwrap();
+        let l_i = self.area_lights[i_area_light].spectrum_rgb.unwrap();
+        Some((l_i, pdf_usphere, uvec_obs2light))
+    }
+    fn pdf_light_visible(&self, i_shape_entity_light: usize, pos_observe: &[f32; 3]) -> f32 {
+        self.shape_entities[i_shape_entity_light].pdf_visible(pos_observe)
+    }
 }
 
 impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
@@ -66,6 +161,7 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
         obj_nrm: &[f32; 3],
         ray_in_outward_normalized: &[f32; 3],
         ray_out_normalized: &[f32; 3],
+        minimum_roughness: f32,
     ) -> [f32; 3] {
         use del_geo_core::vec3::Vec3;
         assert!((ray_in_outward_normalized.norm() - 1.0).abs() < 1.0e-5);
@@ -75,58 +171,58 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
             obj_nrm,
             ray_in_outward_normalized,
             ray_out_normalized,
+            minimum_roughness,
         )
     }
 
     fn pdf_light(
         &self,
-        hit_pos: &[f32; 3],
-        hit_pos_light: &[f32; 3],
-        hit_nrm_light: &[f32; 3],
-        i_shape_element: usize,
+        pos_observe: &[f32; 3],
+        pos_light: &[f32; 3],
+        nrm_light: &[f32; 3],
+        i_shape_element_light: usize,
     ) -> f32 {
-        let ial = self.shape_entities[i_shape_element]
+        let ial = self.shape_entities[i_shape_element_light]
             .area_light_index
             .unwrap();
-        let al2mag = self.hoge(hit_pos);
+        let al2mag = self.build_area_light_importance_heuristic(pos_observe);
         let pdf0 = (al2mag[ial + 1] - al2mag[ial]) / al2mag.last().unwrap();
-        let pdf1 = 1.0 / self.area_light_geometries[ial].area;
-        let r2 = del_geo_core::edge3::squared_length(&hit_pos_light, &hit_pos);
-        use del_geo_core::vec3;
-        use del_geo_core::vec3::Vec3;
-        let uvec_hit2light = hit_pos_light.sub(&hit_pos).normalize();
-        let cos_theta_light = -vec3::dot(&hit_nrm_light, &uvec_hit2light);
-        if cos_theta_light <= 0. {
-            return f32::EPSILON;
-        } // backside of light
-        let geo_term = cos_theta_light / r2;
-        pdf0 * pdf1 / geo_term
+        let pdf1_usphere = if self.is_light_sample_uniform {
+            self.pdf_light_uniform(i_shape_element_light, pos_light, nrm_light, pos_observe)
+        } else {
+            self.pdf_light_visible(i_shape_element_light, pos_observe)
+        };
+        pdf0 * pdf1_usphere
     }
     fn sample_brdf<RNG>(
         &self,
-        obj_nrm: &[f32; 3],
-        uvec_ray_in: &[f32; 3],
+        nrm_obj: &[f32; 3],
+        ray_in_uvec_outward: &[f32; 3],
         i_shape_entity: usize,
         rng: &mut RNG,
+        min_roughness: f32,
     ) -> Option<([f32; 3], [f32; 3], f32)>
     where
         RNG: rand::Rng,
     {
+        // dbg!(nrm_obj.dot(ray_in_uvec_outward));
+        // dbg!(del_geo_core::vec3::norm(&ray_in_uvec_outward));
         let se = &self.shape_entities[i_shape_entity];
         let i_material = se.material_index.unwrap();
         assert!(i_material < self.materials.len());
         del_raycast_core::material::sample_brdf(
             &self.materials[i_material],
-            obj_nrm,
-            uvec_ray_in,
+            nrm_obj,
+            ray_in_uvec_outward,
             rng,
+            min_roughness,
         )
     }
-    fn hit_position_normal_emission_at_ray_intersection(
+    fn hit_position_normal_emission_roughness_at_ray_intersection(
         &self,
         ray_org: &[f32; 3],
         ray_dir: &[f32; 3],
-    ) -> Option<([f32; 3], [f32; 3], [f32; 3], usize)> {
+    ) -> Option<([f32; 3], [f32; 3], [f32; 3], f32, usize)> {
         let Some((t, i_shape_entity, i_elem)) =
             del_raycast_core::shape::intersection_ray_against_shape_entities(
                 ray_org,
@@ -146,59 +242,70 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
         } else {
             [0f32; 3]
         };
-        Some((hit_pos_world, hit_nrm_world, hit_emission, i_shape_entity))
+        let hit_roughness = {
+            let i_material = self.shape_entities[i_shape_entity].material_index.unwrap();
+            let material = &self.materials[i_material];
+            match material {
+                del_raycast_core::material::Material::None => 100f32,
+                del_raycast_core::material::Material::Diff(diff) => 100f32,
+                del_raycast_core::material::Material::Cond(cond) => {
+                    cond.uroughness.max(cond.vroughness)
+                }
+            }
+        };
+        Some((
+            hit_pos_world,
+            hit_nrm_world,
+            hit_emission,
+            hit_roughness,
+            i_shape_entity,
+        ))
     }
 
     /// # Return
     /// - `Some(radiance: [f32;3], pdf: f32, uvec_hit2light:[f32;3])`
     ///    - `pdf: f32` the pdf is computed on the unit hemisphere (pdf of light / geometric term)
     /// - `None`
-    fn radiance_from_light<RNG: rand::Rng>(
+    fn sample_light<RNG: rand::Rng>(
         &self,
-        hit_pos: &[f32; 3],
+        pos_observe: &[f32; 3],
+        i_shape_entity_observe: usize,
         rng: &mut RNG,
     ) -> Option<([f32; 3], f32, [f32; 3])> {
         use del_geo_core::vec3;
-        let al2mag = self.hoge(hit_pos);
+        let al2mag = self.build_area_light_importance_heuristic(pos_observe);
         let (ial, _rand1, pdf0) = del_msh_core::cumsum::sample(&al2mag, rng.gen::<f32>());
         let ise = self.area_light_geometries[ial].i_shape_entity;
-        let (light_pos, light_nrm, pdf1) =
-            &self.shape_entities[ise].sample_uniform(&[rng.gen::<f32>(), rng.gen::<f32>()]);
-        let uvec_hit2light = vec3::normalize(&vec3::sub(&light_pos, &hit_pos));
-        let cos_theta_light = -vec3::dot(&light_nrm, &uvec_hit2light);
-        if cos_theta_light <= f32::EPSILON {
+        if i_shape_entity_observe == ise {
             return None;
-        } // backside of light
-        if let Some((t, i_shape_entity, _i_tri)) =
-            del_raycast_core::shape::intersection_ray_against_shape_entities(
-                &hit_pos,
-                &uvec_hit2light,
-                &self.shape_entities,
-            )
-        {
-            if i_shape_entity != ise {
-                return None;
-            }
-            let light_pos2 = vec3::axpy(t, &uvec_hit2light, hit_pos);
-            if del_geo_core::edge3::length(&light_pos, &light_pos2) > 1.0e-3 {
-                return None;
-            }
+        }
+        let res = if self.is_light_sample_uniform {
+            self.sample_light_uniform(ise, pos_observe, rng)
         } else {
+            self.sample_light_visible(ise, pos_observe, rng)
+        };
+        let Some((radiance, pdf1, uvec_obsrv2light)) = res else {
             return None;
         };
-        let r2 = del_geo_core::edge3::squared_length(&light_pos, &hit_pos);
-        let geo_term = cos_theta_light / r2;
-        let l_i = self.area_lights[ial].spectrum_rgb.unwrap();
-        let pdf = pdf0 * pdf1 / geo_term;
-        Some((l_i, pdf, uvec_hit2light))
+        Some((radiance, pdf0 * pdf1, uvec_obsrv2light))
     }
 }
 
-fn hoge_nee(
+enum IntegrationType {
+    PathTracing,
+    NextEventEstimation,
+    Mis,
+}
+
+fn mc_integration(
+    integration_type: IntegrationType,
+    str_type: &str,
     scene: &MyScene,
     camera: &del_raycast_core::parse_pbrt::Camera,
     num_sample: usize,
+    max_depth: usize,
     img_gt: &[f32],
+    is_increasing_roughness: bool,
 ) -> anyhow::Result<()> {
     let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
         let pix = arrayref::array_mut_ref!(pix, 0, 3);
@@ -214,9 +321,31 @@ fn hoge_nee(
                     del_raycast_core::sampling::tent(rng.gen::<f32>()),
                 ],
             );
-            let rad = del_raycast_core::monte_carlo_integrator::radiance_nee(
-                &ray0_org, &ray0_dir, scene, 4, &mut rng,
-            );
+            let rad = match integration_type {
+                IntegrationType::PathTracing => {
+                    del_raycast_core::monte_carlo_integrator::radiance_pt(
+                        &ray0_org, &ray0_dir, scene, max_depth, &mut rng,
+                    )
+                }
+                IntegrationType::Mis => del_raycast_core::monte_carlo_integrator::radiance_mis(
+                    &ray0_org,
+                    &ray0_dir,
+                    scene,
+                    max_depth,
+                    &mut rng,
+                    is_increasing_roughness,
+                ),
+                IntegrationType::NextEventEstimation => {
+                    del_raycast_core::monte_carlo_integrator::radiance_nee(
+                        &ray0_org,
+                        &ray0_dir,
+                        scene,
+                        max_depth,
+                        &mut rng,
+                        is_increasing_roughness,
+                    )
+                }
+            };
             l_o = del_geo_core::vec3::add(&l_o, &rad);
         }
         *pix = del_geo_core::vec3::scale(&l_o, 1. / num_sample as f32);
@@ -226,128 +355,26 @@ fn hoge_nee(
         use rayon::prelude::*;
         img_out
             .par_chunks_mut(3)
+            // .chunks_mut(3)
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         img_out
     };
     del_canvas::write_hdr_file(
-        format!("target/07_cornell_box_nee_{}.hdr", num_sample),
+        format!("target/08_veach_mis__{}_{}.hdr", str_type, num_sample),
         camera.img_shape,
         &img_out,
     )?;
-    let path_error_map = format!("target/02_cornell_box_nee_{}_error_map.hdr", num_sample);
+    let path_error_map = format!(
+        "target/08_veach_mis__{}_{}_error_map.hdr",
+        str_type, num_sample
+    );
     del_canvas::write_hdr_file_mse_rgb_error_map(
         path_error_map,
         camera.img_shape,
         &img_gt,
         &img_out,
-    );
-    let err = del_canvas::rmse_error(&img_gt, &img_out);
-    println!("num_sample: {}, mse: {}", num_sample, err);
-    Ok(())
-}
-
-fn hoge_pt(
-    scene: &MyScene,
-    camera: &del_raycast_core::parse_pbrt::Camera,
-    num_sample: usize,
-    img_gt: &[f32],
-) -> anyhow::Result<()> {
-    let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
-        let pix = arrayref::array_mut_ref![pix, 0, 3];
-        use rand::Rng;
-        use rand::SeedableRng;
-        let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
-        let mut l_o = [0., 0., 0.];
-        for _i_sample in 0..num_sample {
-            let (ray_org, ray_dir) = camera.ray(
-                i_pix,
-                [
-                    del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                ],
-            );
-            let rad = del_raycast_core::monte_carlo_integrator::radiance_pt(
-                &ray_org, &ray_dir, scene, 3, &mut rng,
-            );
-            l_o = del_geo_core::vec3::add(&l_o, &rad);
-        }
-        *pix = del_geo_core::vec3::scale(&l_o, 1. / num_sample as f32);
-    };
-    let img_out = {
-        let mut img_out = vec![0f32; camera.img_shape.0 * camera.img_shape.1 * 3];
-        use rayon::prelude::*;
-        img_out
-            .par_chunks_mut(3)
-            .enumerate()
-            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        img_out
-    };
-    del_canvas::write_hdr_file(
-        format!("target/08_veach_mis_pt_{}.hdr", num_sample),
-        camera.img_shape,
-        &img_out,
     )?;
-    let path_error_map = format!("target/08_veach_mis_pt_{}_error_map.hdr", num_sample);
-    del_canvas::write_hdr_file_mse_rgb_error_map(
-        path_error_map,
-        camera.img_shape,
-        &img_gt,
-        &img_out,
-    );
-    let err = del_canvas::rmse_error(&img_gt, &img_out);
-    println!("num_sample: {}, mse: {}", num_sample, err);
-    Ok(())
-}
-
-fn hoge_mis(
-    scene: &MyScene,
-    camera: &del_raycast_core::parse_pbrt::Camera,
-    num_sample: usize,
-    img_gt: &[f32],
-) -> anyhow::Result<()> {
-    let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
-        let pix = arrayref::array_mut_ref!(pix, 0, 3);
-        use rand::Rng;
-        use rand::SeedableRng;
-        let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
-        let mut l_o = [0., 0., 0.];
-        for _i_sample in 0..num_sample {
-            let (ray0_org, ray0_dir) = camera.ray(
-                i_pix,
-                [
-                    del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                ],
-            );
-            let rad = del_raycast_core::monte_carlo_integrator::radiance_mis(
-                &ray0_org, &ray0_dir, scene, 65, &mut rng,
-            );
-            l_o = del_geo_core::vec3::add(&l_o, &rad);
-        }
-        *pix = del_geo_core::vec3::scale(&l_o, 1. / num_sample as f32);
-    };
-    let img_out = {
-        let mut img_out = vec![0f32; camera.img_shape.0 * camera.img_shape.1 * 3];
-        use rayon::prelude::*;
-        img_out
-            .par_chunks_mut(3)
-            .enumerate()
-            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        img_out
-    };
-    del_canvas::write_hdr_file(
-        format!("target/02_cornell_box_mis_{}.hdr", num_sample),
-        camera.img_shape,
-        &img_out,
-    )?;
-    let path_error_map = format!("target/02_cornell_box_mis_{}_error_map.hdr", num_sample);
-    del_canvas::write_hdr_file_mse_rgb_error_map(
-        path_error_map,
-        camera.img_shape,
-        &img_gt,
-        &img_out,
-    );
     let err = del_canvas::rmse_error(&img_gt, &img_out);
     println!("num_sample: {}, mse: {}", num_sample, err);
     Ok(())
@@ -375,8 +402,7 @@ fn main() -> anyhow::Result<()> {
                 Some((t, _ise, _ie)) => t,
                 None => f32::INFINITY,
             };
-            let v = t * 0.05;
-            *pix = [v; 3];
+            *pix = [t * 0.05; 3];
         };
         let mut img_out = vec![0f32; camera.img_shape.0 * camera.img_shape.1 * 3];
         use rayon::prelude::*;
@@ -384,7 +410,7 @@ fn main() -> anyhow::Result<()> {
             .par_chunks_mut(3)
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        del_canvas::write_hdr_file("target/08_veach_mis_depth.hdr", camera.img_shape, &img_out)?;
+        del_canvas::write_hdr_file("target/08_veach_mis__depth.hdr", camera.img_shape, &img_out)?;
     }
     let img_gt = image::open("asset/veach-mis/TungstenRender.exr")
         .unwrap()
@@ -394,93 +420,136 @@ fn main() -> anyhow::Result<()> {
         (camera.img_shape.0 as u32, camera.img_shape.1 as u32)
     );
     //
-    println!("---------------------light sampling---------------------");
-    for i in 1..4 {
-        use del_geo_core::vec3::Vec3;
-        // light sampling
-        let num_sample = 8 * i;
-        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
-            let pix = arrayref::array_mut_ref![pix, 0, 3];
-            use rand::Rng;
-            use rand::SeedableRng;
-            let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
-            let mut l_o = [0., 0., 0.];
-            for _i_sample in 0..num_sample {
-                let (ray_org, ray_dir) = camera.ray(
-                    i_pix,
-                    [
-                        del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                        del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    ],
-                );
-                use del_raycast_core::monte_carlo_integrator::Scene;
-                let Some((hit_pos, hit_nrm, hit_emission, hit_i_shape_entity)) =
-                    scene.hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir)
-                else {
-                    continue;
-                };
-                l_o = vec3::add(&l_o, &hit_emission);
-                use del_geo_core::vec3;
-                let hit_pos = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
-                if let Some((li, pdf_light, uvec_hit2light)) =
-                    scene.radiance_from_light(&hit_pos, &mut rng)
-                {
-                    let brdf_hit = scene.eval_brdf(
-                        hit_i_shape_entity,
-                        &hit_nrm,
-                        &ray_dir.scale(-1.).normalize(),
-                        &uvec_hit2light,
-                    );
-                    let cos_hit = vec3::dot(&uvec_hit2light, &hit_nrm);
-                    let li_r = vec3::element_wise_mult(&li, &brdf_hit.scale(cos_hit / pdf_light));
-                    l_o = vec3::add(&l_o, &li_r);
-                }
-            }
-            *pix = l_o.scale(1.0 / num_sample as f32);
-        };
-        let img_out = {
-            let mut img_out = vec![0f32; camera.img_shape.0 * camera.img_shape.1 * 3];
-            use rayon::prelude::*;
-            img_out
-                .par_chunks_mut(3)
-                .enumerate()
-                .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-            img_out
-        };
-        del_canvas::write_hdr_file(
-            format!("target/08_veach_mis_light_sampling_{}.hdr", num_sample),
-            camera.img_shape,
-            &img_out,
-        )?;
-        let path_error_map = format!(
-            "target/08_veach_mis_light_sampling_{}_error_map.hdr",
-            num_sample
-        );
-        del_canvas::write_hdr_file_mse_rgb_error_map(
-            path_error_map,
-            camera.img_shape,
-            &img_gt,
-            &img_out,
-        );
-        let err = del_canvas::rmse_error(&img_gt, &img_out);
-        println!("num_sample: {}, mse: {}", num_sample, err);
-    }
-    println!("---------------------MIS sampling---------------------");
-    for i in 1..4 {
-        let num_sample = 8 * i;
-        hoge_mis(&scene, &camera, num_sample, &img_gt)?;
-    }
     println!("---------------------path tracer---------------------");
-    for i in 1..4 {
-        // path tracing sampling material
-        let num_sample = 8 * i;
-        hoge_pt(&scene, &camera, num_sample, &img_gt)?;
-    }
+    mc_integration(
+        IntegrationType::PathTracing,
+        "pt",
+        &scene,
+        &camera,
+        24,
+        4,
+        &img_gt,
+        false,
+    )?;
+    // ---------------------------------
+    // increasing roughness
+    // ---------------------------------
+    let scene = MyScene {
+        shape_entities: scene.shape_entities,
+        materials: scene.materials,
+        area_lights: scene.area_lights,
+        area_light_geometries: scene.area_light_geometries,
+        is_light_sample_uniform: false,
+    };
+    println!("---------------------NEE tracer VisibleLightSampling IncreasingRoughness---------------------");
+    mc_integration(
+        IntegrationType::NextEventEstimation,
+        "nee_visl_incr",
+        &scene,
+        &camera,
+        24,
+        4,
+        &img_gt,
+        true,
+    )?;
+    println!("---------------------Light sampling VisibleLightSampling IncreasingRoughness---------------------");
+    mc_integration(
+        IntegrationType::NextEventEstimation,
+        "ls_visl_incr",
+        &scene,
+        &camera,
+        24,
+        1,
+        &img_gt,
+        true,
+    )?;
+    println!("---------------------MIS sampling VisibleLightSampling IncreasingRoughness---------------------");
+    mc_integration(
+        IntegrationType::Mis,
+        "mis_visl_incr",
+        &scene,
+        &camera,
+        24,
+        4,
+        &img_gt,
+        true,
+    )?;
+    // ----------------------------------------------------
+    // Default unbiased
+    // ----------------------------------------------------
     println!("---------------------NEE tracer---------------------");
-    for i in 1..4 {
-        // path tracing next event estimation
-        let num_sample = 8 * i;
-        hoge_nee(&scene, &camera, num_sample, &img_gt)?;
-    }
+    mc_integration(
+        IntegrationType::NextEventEstimation,
+        "nee_visl",
+        &scene,
+        &camera,
+        24,
+        4,
+        &img_gt,
+        false,
+    )?;
+    println!("---------------------Light sampling---------------------");
+    mc_integration(
+        IntegrationType::NextEventEstimation,
+        "ls_visl",
+        &scene,
+        &camera,
+        24,
+        1,
+        &img_gt,
+        false,
+    )?;
+    println!("---------------------MIS sampling---------------------");
+    mc_integration(
+        IntegrationType::Mis,
+        "mis_visl",
+        &scene,
+        &camera,
+        24,
+        4,
+        &img_gt,
+        false,
+    )?;
+    // --------------------------------------
+    let scene = MyScene {
+        shape_entities: scene.shape_entities,
+        materials: scene.materials,
+        area_lights: scene.area_lights,
+        area_light_geometries: scene.area_light_geometries,
+        is_light_sample_uniform: true,
+    };
+    println!("---------------------NEE tracer UniformLightSampling IncreasingRoughness---------------------");
+    mc_integration(
+        IntegrationType::NextEventEstimation,
+        "nee_unil_incr",
+        &scene,
+        &camera,
+        24,
+        4,
+        &img_gt,
+        true,
+    )?;
+    println!("---------------------light sampling VisibleLightSampling IncreasingRoughness---------------------");
+    mc_integration(
+        IntegrationType::NextEventEstimation,
+        "ls_unil_incr",
+        &scene,
+        &camera,
+        24,
+        1,
+        &img_gt,
+        true,
+    )?;
+    println!("---------------------MIS sampling VisibleLightSampling IncreasingRoughness---------------------");
+    mc_integration(
+        IntegrationType::Mis,
+        "mis_unil_incr",
+        &scene,
+        &camera,
+        24,
+        4,
+        &img_gt,
+        true,
+    )?;
     Ok(())
 }

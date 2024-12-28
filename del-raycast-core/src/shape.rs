@@ -8,7 +8,8 @@ pub struct ShapeEntity {
 
 impl ShapeEntity {
     /// # Returns
-    /// (pos: [f32;3], nrm: [f32;3], pdf)
+    /// (pos: [f32;3], nrm: [f32;3], pdf: f32)
+    /// * `pdf` - the density on the light source
     pub fn sample_uniform(&self, rnd: &[f32; 2]) -> ([f32; 3], [f32; 3], f32) {
         let (pos, nrm, pdf) = self.shape.sample_uniform(rnd);
         use del_geo_core::mat4_col_major;
@@ -16,17 +17,88 @@ impl ShapeEntity {
             mat4_col_major::transform_homogeneous(&self.transform_objlcl2world, &pos).unwrap();
         let nrm = mat4_col_major::transform_direction(&self.transform_objlcl2world, &nrm);
         let m3 = mat4_col_major::to_mat3_col_major_xyz(&self.transform_objlcl2world);
-        let det = del_geo_core::mat3_col_major::determinant(&m3);
+        assert!((del_geo_core::mat3_col_major::determinant(&m3) - 1f32).abs() < 1.0e-5);
         let nrm = del_geo_core::vec3::normalize(&nrm);
-        (pos, nrm, pdf / det)
+        (pos, nrm, pdf)
     }
+
+    /// # Returns
+    /// (uvec_obs2light: [f32;3], pos: [f32;3], pdf: f32)
+    pub fn sample_visible(
+        &self,
+        pos_observe: &[f32; 3],
+        rnd: &[f32; 2],
+    ) -> Option<([f32; 3], [f32; 3], f32)> {
+        use del_geo_core::vec3;
+        match self.shape {
+            ShapeType::TriangleMesh { .. } => {
+                let (pos_light, nrm_light, pdf_obj) = self.sample_uniform(rnd);
+                let uvec_hit2light = vec3::normalize(&vec3::sub(&pos_light, pos_observe));
+                let cos_theta_light = -vec3::dot(&nrm_light, &uvec_hit2light);
+                if cos_theta_light < 0. {
+                    return None;
+                } // backside of light
+                let r2 = del_geo_core::edge3::squared_length(&pos_light, pos_observe);
+                let geo_term = cos_theta_light / r2;
+                Some((uvec_hit2light, pos_light, pdf_obj / geo_term))
+            }
+            ShapeType::Sphere { radius } => {
+                let pos_center = del_geo_core::mat4_col_major::transform_homogeneous(
+                    &self.transform_objlcl2world,
+                    &[0., 0., 0.],
+                )
+                .unwrap();
+                let pos_relative = vec3::sub(&pos_center, pos_observe);
+                assert!(
+                    vec3::norm(&pos_relative) >= radius,
+                    "{} {}",
+                    vec3::norm(&pos_relative),
+                    radius
+                );
+                let (uvec_obsrv2light, pdf) =
+                    del_geo_core::sphere::sample_where_another_sphere_is_visible(
+                        radius,
+                        &pos_relative,
+                        rnd,
+                    );
+                let t = del_geo_core::sphere::intersection_ray(
+                    radius,
+                    &pos_center,
+                    pos_observe,
+                    &uvec_obsrv2light,
+                )?;
+                let pos_light = vec3::axpy(t, &uvec_obsrv2light, pos_observe);
+                Some((uvec_obsrv2light, pos_light, pdf))
+            }
+        }
+    }
+
+    /// pdf on the unit sphere
+    pub fn pdf_visible(&self, pos_observe: &[f32; 3]) -> f32 {
+        match &self.shape {
+            ShapeType::TriangleMesh { tri2cumsumarea, .. } => {
+                let area = tri2cumsumarea.as_ref().unwrap().last().unwrap();
+                1.0 / area
+            }
+            ShapeType::Sphere { radius } => {
+                use del_geo_core::vec3;
+                let pos_center = del_geo_core::mat4_col_major::transform_homogeneous(
+                    &self.transform_objlcl2world,
+                    &[0., 0., 0.],
+                )
+                .unwrap();
+                let pos_relative = vec3::sub(&pos_center, pos_observe);
+                del_geo_core::sphere::pdf_light_sample(&pos_relative, *radius)
+            }
+        }
+    }
+
     pub fn cog_and_area(&self) -> ([f32; 3], f32) {
         let m4 = self.transform_objlcl2world;
         let m3 = del_geo_core::mat4_col_major::to_mat3_col_major_xyz(&m4);
+        assert!((del_geo_core::mat3_col_major::determinant(&m3) - 1f32).abs() < 1.0e-5);
         let (cog, area) = self.shape.cog_and_area();
-        let det = del_geo_core::mat3_col_major::determinant(&m3);
         let cog = del_geo_core::mat4_col_major::transform_homogeneous(&m4, &cog).unwrap();
-        let area = area * det.abs();
         (cog, area)
     }
 }
@@ -220,4 +292,29 @@ pub fn triangle_mesh_normal_at(
         bc[0] * n0[2] + bc[1] * n1[2] + bc[2] * n2[2],
     ];
     del_geo_core::vec3::normalize(&n)
+}
+
+pub fn is_visible(
+    shape_entities: &[crate::shape::ShapeEntity],
+    hit_pos: &[f32; 3],
+    light_pos: &[f32; 3],
+    ise: usize,
+) -> bool {
+    let vec_hit2light = del_geo_core::vec3::sub(light_pos, hit_pos);
+    if let Some((t, i_shape_entity, _i_tri)) = crate::shape::intersection_ray_against_shape_entities(
+        hit_pos,
+        &vec_hit2light,
+        shape_entities,
+    ) {
+        if i_shape_entity != ise {
+            return false;
+        }
+        let light_pos2 = del_geo_core::vec3::axpy(t, &vec_hit2light, hit_pos);
+        if del_geo_core::edge3::length(light_pos, &light_pos2) > 1.0e-3 {
+            return false;
+        }
+    } else {
+        return false;
+    };
+    true
 }

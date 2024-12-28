@@ -1,10 +1,10 @@
 pub trait Scene {
     #[allow(clippy::type_complexity)]
-    fn hit_position_normal_emission_at_ray_intersection(
+    fn hit_position_normal_emission_roughness_at_ray_intersection(
         &self,
         ray_org: &[f32; 3],
         ray_dir: &[f32; 3],
-    ) -> Option<([f32; 3], [f32; 3], [f32; 3], usize)>;
+    ) -> Option<([f32; 3], [f32; 3], [f32; 3], f32, usize)>;
 
     fn eval_brdf(
         &self,
@@ -12,29 +12,36 @@ pub trait Scene {
         obj_nrm: &[f32; 3],
         ray_in_outward_normlized: &[f32; 3],
         ray_out_normalized: &[f32; 3],
+        minimum_roughness: f32,
     ) -> [f32; 3];
+
+    /// `uvec_ray_in_outward` should be facing outward (same direction as `obj_nrm`)
     fn sample_brdf<Rng: rand::Rng>(
         &self,
         obj_nrm: &[f32; 3],
-        uvec_ray_in: &[f32; 3],
-        itrimsh: usize,
+        uvec_ray_in_outward: &[f32; 3],
+        i_shape_entity: usize,
         rng: &mut Rng,
+        minimum_roughness: f32,
     ) -> Option<([f32; 3], [f32; 3], f32)>;
 
     /// # Return
     /// - `Some(radiance: [f32;3], pdf: f32, uvec_hit2light:[f32;3])`
     ///    - `pdf: f32` the pdf is computed on the unit hemisphere (pdf of light / geometric term)
     /// - `None`
-    fn radiance_from_light<Rng: rand::Rng>(
+    fn sample_light<Rng: rand::Rng>(
         &self,
-        hit_pos_w_offset: &[f32; 3],
+        pos_observeffset: &[f32; 3],
+        i_shape_entity_observe: usize,
         rng: &mut Rng,
     ) -> Option<([f32; 3], f32, [f32; 3])>;
+
+    /// pdf should be the density on the unit sphere around the `pos_observe`
     fn pdf_light(
         &self,
-        hit_pos: &[f32; 3],
-        hit_pos_light: &[f32; 3],
-        hit_nrm_light: &[f32; 3],
+        pos_observe: &[f32; 3],
+        pos_light: &[f32; 3],
+        nrm_light: &[f32; 3],
         i_shape_entity: usize,
     ) -> f32;
 }
@@ -56,8 +63,8 @@ where
     let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
     let mut ray_dir: [f32; 3] = ray_dir_ini.to_owned();
     for _i_depth in 0..max_depth {
-        let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
-            scene.hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir)
+        let Some((hit_pos, hit_nrm, hit_emission, _hit_roughness, hit_itrimsh)) =
+            scene.hit_position_normal_emission_roughness_at_ray_intersection(&ray_org, &ray_dir)
         else {
             break;
         };
@@ -68,6 +75,7 @@ where
             &ray_dir.scale(-1f32).normalize(),
             hit_itrimsh,
             rng,
+            0.0,
         ) else {
             break;
         };
@@ -94,6 +102,7 @@ pub fn radiance_nee<RNG, SCENE>(
     scene: &SCENE,
     max_depth: usize,
     rng: &mut RNG,
+    is_increasing_roughness: bool,
 ) -> [f32; 3]
 where
     RNG: rand::Rng,
@@ -104,13 +113,18 @@ where
     let mut throughput = [1f32; 3];
     let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
     let mut ray_dir: [f32; 3] = ray_dir_ini.to_owned();
+    let mut max_roughness = 0f32;
     for i_depth in 0..max_depth {
         use del_geo_core::vec3;
-        let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
-            scene.hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir)
+        let Some((hit_pos, hit_nrm, hit_emission, hit_roughness, hit_i_shape_entity)) =
+            scene.hit_position_normal_emission_roughness_at_ray_intersection(&ray_org, &ray_dir)
         else {
             break;
         };
+        if is_increasing_roughness {
+            max_roughness = max_roughness.max(hit_roughness);
+        }
+        // println!("{} {} {}", i_depth, hit_roughness, max_roughness);
         // ------------
         if i_depth == 0 {
             rad_out = rad_out.add(&hit_emission.element_wise_mult(&throughput));
@@ -119,13 +133,14 @@ where
         if hit_emission == [0f32; 3] {
             // sample light
             if let Some((li_light, pdf_light, uvec_hit2light)) =
-                scene.radiance_from_light(&hit_pos_w_offset, rng)
+                scene.sample_light(&hit_pos_w_offset, hit_i_shape_entity, rng)
             {
                 let brdf_hit = scene.eval_brdf(
-                    hit_itrimsh,
+                    hit_i_shape_entity,
                     &hit_nrm,
                     &ray_dir.scale(-1.).normalize(),
                     &uvec_hit2light,
+                    max_roughness,
                 );
                 let cos_hit = vec3::dot(&uvec_hit2light, &hit_nrm);
                 let lo_light =
@@ -133,16 +148,20 @@ where
                 rad_out = rad_out.add(&lo_light.element_wise_mult(&throughput));
             }
         }
+        if i_depth == max_depth - 1 {
+            break;
+        }
         let ray_dir_next = {
             let Some((ray_dir_next, brdf, pdf)) = scene.sample_brdf(
                 &hit_nrm,
                 &ray_dir.scale(-1f32).normalize(),
-                hit_itrimsh,
+                hit_i_shape_entity,
                 rng,
+                max_roughness,
             ) else {
                 break;
             };
-            let cos_hit = ray_dir_next.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
+            let cos_hit = ray_dir_next.dot(&hit_nrm); //.clamp(f32::EPSILON, 1f32);
             throughput = throughput.element_wise_mult(&brdf.scale(cos_hit / pdf));
             ray_dir_next
         };
@@ -170,6 +189,7 @@ pub fn radiance_mis<RNG, SCENE>(
     scene: &SCENE,
     max_depth: usize,
     rng: &mut RNG,
+    is_increasing_roughness: bool,
 ) -> [f32; 3]
 where
     RNG: rand::Rng,
@@ -180,27 +200,33 @@ where
     let mut throughput = [1f32; 3];
     let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
     let mut ray_dir: [f32; 3] = ray_dir_ini.to_owned();
+    let mut max_roughness = 0f32;
     for i_depth in 0..max_depth {
         use del_geo_core::vec3;
-        let Some((hit_pos, hit_nrm, hit_emission, hit_itrimsh)) =
-            scene.hit_position_normal_emission_at_ray_intersection(&ray_org, &ray_dir)
+        let Some((hit_pos, hit_nrm, hit_emission, hit_roughness, hit_i_shape_entity)) =
+            scene.hit_position_normal_emission_roughness_at_ray_intersection(&ray_org, &ray_dir)
         else {
             break;
         };
+        if is_increasing_roughness {
+            max_roughness = max_roughness.max(hit_roughness);
+        }
         // ------------
         if i_depth == 0 {
             rad_out = rad_out.add(&hit_emission.element_wise_mult(&throughput));
         };
         let hit_pos_w_offset = vec3::axpy(1.0e-3, &hit_nrm, &hit_pos);
         if hit_emission == [0f32; 3] {
+            // sample light seeking for direct light
             if let Some((li_light, pdf_light, uvec_hit2light)) =
-                scene.radiance_from_light(&hit_pos_w_offset, rng)
+                scene.sample_light(&hit_pos_w_offset, hit_i_shape_entity, rng)
             {
                 let brdf_hit = scene.eval_brdf(
-                    hit_itrimsh,
+                    hit_i_shape_entity,
                     &hit_nrm,
                     &ray_dir.scale(-1.).normalize(),
                     &uvec_hit2light,
+                    max_roughness,
                 );
                 let cos_hit = vec3::dot(&uvec_hit2light, &hit_nrm);
                 let pdf_brdf = cos_hit * std::f32::consts::FRAC_1_PI;
@@ -213,27 +239,37 @@ where
             }
         }
         if hit_emission == [0f32; 3] {
+            // sample material seeking for direct light
             let Some((ray_dir_brdf, brdf, pdf_brdf)) = scene.sample_brdf(
                 &hit_nrm,
                 &ray_dir.scale(-1f32).normalize(),
-                hit_itrimsh,
+                hit_i_shape_entity,
                 rng,
+                max_roughness,
             ) else {
                 break;
             };
-            if let Some((hit_pos_light, hit_nrm_light, hit_emission, hit_itrimsh_light)) = scene
-                .hit_position_normal_emission_at_ray_intersection(&hit_pos_w_offset, &ray_dir_brdf)
-            {
-                if hit_emission != [0f32; 3] {
+            if let Some((
+                hit_pos_light,
+                hit_nrm_light,
+                hit_emission_light,
+                _hit_roughness,
+                hit_i_shape_entity_light,
+            )) = scene.hit_position_normal_emission_roughness_at_ray_intersection(
+                &hit_pos_w_offset,
+                &ray_dir_brdf,
+            ) {
+                // the material-sampled ray hit light
+                if hit_emission_light != [0f32; 3] {
                     let cos_hit = ray_dir_brdf.dot(&hit_nrm).clamp(f32::EPSILON, 1f32);
                     let pdf_light = scene.pdf_light(
                         &hit_pos,
                         &hit_pos_light,
                         &hit_nrm_light,
-                        hit_itrimsh_light,
+                        hit_i_shape_entity_light,
                     );
                     let mis_weight_brdf = pdf_brdf / (pdf_brdf + pdf_light);
-                    let lo_brdf = hit_emission
+                    let lo_brdf = hit_emission_light
                         .element_wise_mult(&brdf.scale(cos_hit / pdf_brdf * mis_weight_brdf));
                     rad_out = rad_out.add(&lo_brdf.element_wise_mult(&throughput));
                 }
@@ -244,8 +280,9 @@ where
             let Some((ray_dir_next, brdf, pdf_brdf)) = scene.sample_brdf(
                 &hit_nrm,
                 &ray_dir.scale(-1f32).normalize(),
-                hit_itrimsh,
+                hit_i_shape_entity,
                 rng,
+                max_roughness,
             ) else {
                 break;
             };

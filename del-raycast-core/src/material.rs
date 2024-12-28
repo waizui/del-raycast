@@ -79,7 +79,13 @@ fn microfacet_beckmann_d(alpha: f32, m: &[f32; 3]) -> f32 {
     let cos_theta_sq = m[2] * m[2];
     let tan_theta_sq = (1f32 - cos_theta_sq).max(0f32) / cos_theta_sq;
     let cos_theta_qu = cos_theta_sq * cos_theta_sq;
-    std::f32::consts::FRAC_1_PI * (-tan_theta_sq / alpha_sq).exp() / (alpha_sq * cos_theta_qu)
+    let d =
+        std::f32::consts::FRAC_1_PI * (-tan_theta_sq / alpha_sq).exp() / (alpha_sq * cos_theta_qu);
+    if d < f32::EPSILON {
+        0f32
+    } else {
+        d
+    }
 }
 
 /// the pdf of microfacet normal `m`
@@ -87,8 +93,8 @@ pub fn microfacet_beckmann_pdf(alpha: f32, m: &[f32; 3]) -> f32 {
     microfacet_beckmann_d(alpha, m) * m[2]
 }
 
-// From "PHYSICALLY BASED LIGHTING CALCULATIONS FOR COMPUTER GRAPHICS" by Peter Shirley
-// http://www.cs.virginia.edu/~jdl/bib/globillum/shirley_thesis.pdf
+/// From "PHYSICALLY BASED LIGHTING CALCULATIONS FOR COMPUTER GRAPHICS" by Peter Shirley
+/// <http://www.cs.virginia.edu/~jdl/bib/globillum/shirley_thesis.pdf>
 pub fn fresnel_conductor_reflectance(eta: f32, k: f32, cos_theta_i: f32) -> f32 {
     let cos_theta_isq = cos_theta_i * cos_theta_i;
     let sin_theta_isq = (1f32 - cos_theta_isq).max(0f32);
@@ -169,21 +175,15 @@ pub fn eval_brdf_rough_conductor(
     roughness: f32,
 ) -> [f32; 3] {
     use del_geo_core::vec3::Vec3;
-    if wi[2] < 0f32 {
+    if wi[2] <= 0f32 || wo[2] <= 0f32 {
         return [0f32; 3];
     }
     let alpha = microfacet_beckmann_roughness_to_alpha(roughness);
-    let m = wi.add(wo).scale(0.5).normalize();
-    assert!(!m[0].is_nan() && !m[1].is_nan() && !m[2].is_nan());
+    let m = wi.add(wo).normalize();
     let wi_dot_m = wi.dot(&m);
-    if wi_dot_m <= 0f32 || wo[2] <= 0f32 {
-        return [0f32; 3];
-    }
     // the masking shadow function
     let g = microfacet_distribution_g(alpha, wi, wo, &m);
-    assert!(!g.is_nan());
     let d = microfacet_beckmann_d(alpha, &m);
-    assert!(!d.is_nan());
     let f = fresnel_conductor_reflectance_rgb(eta, k, wi_dot_m);
     f.scale(g * d * 0.25f32 / (wi[2] * wo[2]))
         .element_wise_mult(reflectance)
@@ -194,6 +194,7 @@ pub fn sample_brdf<RNG>(
     obj_nrm: &[f32; 3],
     ray_in_outward_world: &[f32; 3],
     rng: &mut RNG,
+    min_roughness: f32,
 ) -> Option<([f32; 3], [f32; 3], f32)>
 where
     RNG: rand::Rng,
@@ -214,7 +215,7 @@ where
                 &b.reflectance,
                 &b.eta,
                 &b.k,
-                b.uroughness,
+                b.uroughness.max(min_roughness),
                 rng,
             )?
         }
@@ -232,6 +233,7 @@ pub fn eval_brdf(
     obj_nrm: &[f32; 3],
     ray_in_outward_normalized: &[f32; 3],
     ray_out: &[f32; 3],
+    minimum_roughness: f32,
 ) -> [f32; 3] {
     use del_geo_core::mat3_col_major;
     use del_geo_core::vec3;
@@ -261,8 +263,9 @@ pub fn eval_brdf(
                 &b.reflectance,
                 &b.eta,
                 &b.k,
-                b.uroughness,
+                b.uroughness.max(minimum_roughness),
             )
+            // eval_brdf_diffuse(&b.reflectance)
         }
         Material::None => [0f32; 3],
     }
