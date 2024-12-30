@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
             &vtx2xyz,
             &bvhnodes,
             &bvhnode2aabb,
-            &img_shape,
+            img_shape,
             &transform_ndc2world,
         );
         let img_data_nrm = del_raycast_core::raycast_trimesh3::render_normalmap_from_pix2tri(

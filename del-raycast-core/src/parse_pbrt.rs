@@ -139,13 +139,8 @@ pub fn spectrum_from_light_entity(area_light_entity: &pbrt4::types::AreaLight) -
 fn get_f32_array3_from_material_param(
     key: &str,
     dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
-) -> anyhow::Result<[f32; 3]> {
-    let mp = match dict_mp.get(key) {
-        Some(mp) => mp,
-        None => {
-            return Err(anyhow::Error::msg("hoge"));
-        }
-    };
+) -> Option<[f32; 3]> {
+    let mp = dict_mp.get(key)?;
     assert_eq!(mp.1, key.to_string());
     let res: [f32; 3] =
         mp.2.split_whitespace()
@@ -153,7 +148,7 @@ fn get_f32_array3_from_material_param(
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-    Ok(res)
+    Some(res)
 }
 
 fn get_f32_from_material_param(
@@ -182,8 +177,8 @@ pub fn parse_material(scene: &pbrt4::Scene) -> Vec<crate::material::Material> {
             "conductor" => {
                 let uroughness = get_f32_from_material_param("uroughness", &mat.params).unwrap();
                 let vroughness = get_f32_from_material_param("vroughness", &mat.params).unwrap();
-                let reflectance =
-                    get_f32_array3_from_material_param("reflectance", &mat.params).unwrap();
+                let reflectance = get_f32_array3_from_material_param("reflectance", &mat.params)
+                    .unwrap_or([1.0, 1.0, 1.0]);
                 let k = get_f32_array3_from_material_param("k", &mat.params).unwrap();
                 let eta = get_f32_array3_from_material_param("eta", &mat.params).unwrap();
                 let mat = crate::material::ConductorMaterial {
@@ -246,7 +241,7 @@ pub fn parse_shapes(scene: &pbrt4::Scene) -> Vec<ShapeEntity> {
                 let vtx2xyz = positions.clone();
                 let tri2cumsumarea = if shape_entity.area_light_index.is_some() {
                     let tri2cumsumarea =
-                        del_msh_core::sampling::cumulative_area_sum(&tri2vtx, &vtx2xyz, 3);
+                        del_msh_core::trimesh::tri2cumsumarea(&tri2vtx, &vtx2xyz, 3);
                     Some(tri2cumsumarea)
                 } else {
                     None

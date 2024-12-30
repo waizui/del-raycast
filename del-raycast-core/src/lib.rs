@@ -1,3 +1,4 @@
+pub mod anti_aliased_silhouette;
 pub mod area_light;
 pub mod bxdf;
 pub mod cam2;

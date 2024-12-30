@@ -57,7 +57,7 @@ impl del_gl_winit_glutin::app3::Content for Content {
             &self.vtx2xyz,
             &self.bvhnodes,
             &self.aabbs,
-            &img_shape,
+            img_shape,
             &transform_ndc2world,
         );
         let img_data = del_raycast_core::raycast_trimesh3::render_texture_from_pix2tri(

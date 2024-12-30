@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
         &vtx2xyz,
         &bvhnodes,
         &aabbs,
-        &img_shape,
+        img_shape,
         &transform_ndc2world,
     );
 
@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
         );
         del_canvas::write_png_from_float_image_grayscale(
             "target/05_trimesh3_depth.png",
-            &img_shape,
+            img_shape,
             &img_data,
         )?;
     }

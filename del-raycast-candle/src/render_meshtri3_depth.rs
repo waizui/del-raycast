@@ -1,4 +1,4 @@
-use candle_core::{CpuStorage, Layout, Shape, Tensor};
+use candle_core::{CpuStorage, Device, Layout, Shape, Tensor};
 use std::ops::Deref;
 // use std::time::Instant;
 
@@ -41,7 +41,7 @@ impl candle_core::CustomOp1 for Layer {
                 }
                 let (ray_org, ray_dir) = del_raycast_core::cam3::ray3_homogeneous(
                     (i_w, i_h),
-                    &self.img_shape,
+                    self.img_shape,
                     &self.transform_nbc2world,
                 );
                 let (p0, p1, p2) =
@@ -104,7 +104,7 @@ impl candle_core::CustomOp1 for Layer {
                 }
                 let (ray_org, ray_dir) = del_raycast_core::cam3::ray3_homogeneous(
                     (i_w, i_h),
-                    &self.img_shape,
+                    self.img_shape,
                     &self.transform_nbc2world,
                 );
                 let i_tri = i_tri as usize;
@@ -184,7 +184,7 @@ fn test_optimize_depth() -> anyhow::Result<()> {
             for i_w in 0..img_shape.0 {
                 let (ray_org, _ray_dir) = del_raycast_core::cam3::ray3_homogeneous(
                     (i_w, i_h),
-                    &img_shape,
+                    img_shape,
                     &transform_ndc2world,
                 );
                 let x = ray_org[0];
@@ -205,14 +205,14 @@ fn test_optimize_depth() -> anyhow::Result<()> {
         let pix2depth_trg = pix2depth_trg.flatten_all()?.to_vec1::<f32>()?;
         del_canvas::write_png_from_float_image_grayscale(
             "../target/pix2depth_trg.png",
-            &img_shape,
+            img_shape,
             &pix2depth_trg,
         )?;
         //
         let pix2mask = pix2mask.flatten_all()?.to_vec1::<f32>()?;
         del_canvas::write_png_from_float_image_grayscale(
             "../target/pix2mask.png",
-            &img_shape,
+            img_shape,
             &pix2mask,
         )?;
     }
@@ -228,13 +228,18 @@ fn test_optimize_depth() -> anyhow::Result<()> {
     // let mut optimizer = candle_nn::AdamW::new_lr(vec!(vtx2xyz.clone()), 0.01)?;
 
     for itr in 0..100 {
-        let (bvhnodes, aabbs) = del_msh_candle::bvh::from_trimesh3(&tri2vtx, &vtx2xyz)?;
-        let pix2tri = crate::raycast_trimesh::raycast3(
+        let (bvhnodes, aabbs) = {
+            let bvhdata =
+                del_msh_candle::bvhnode2aabb::BvhForTriMesh::new(num_tri, 3, &Device::Cpu)?;
+            bvhdata.compute(&tri2vtx, &vtx2xyz)?;
+            (bvhdata.bvhnodes, bvhdata.bvhnode2aabb)
+        };
+        let pix2tri = crate::raycast_trimesh::pix2tri_for_trimesh3(
             &tri2vtx,
             &vtx2xyz,
             &bvhnodes,
             &aabbs,
-            &img_shape,
+            img_shape,
             &transform_ndc2world,
         )?;
         let render = Layer {
@@ -250,7 +255,7 @@ fn test_optimize_depth() -> anyhow::Result<()> {
             let pix2depth = pix2depth.flatten_all()?.to_vec1::<f32>()?;
             del_canvas::write_png_from_float_image_grayscale(
                 "../target/pix2depth.png",
-                &img_shape,
+                img_shape,
                 &pix2depth,
             )?;
             let pix2diff = (pix2diff.clone() * 10.0)?
@@ -259,7 +264,7 @@ fn test_optimize_depth() -> anyhow::Result<()> {
                 .to_vec1::<f32>()?;
             del_canvas::write_png_from_float_image_grayscale(
                 "../target/pix2diff.png",
-                &img_shape,
+                img_shape,
                 &pix2diff,
             )?;
         }
@@ -283,14 +288,22 @@ fn test_optimize_depth() -> anyhow::Result<()> {
 pub fn render(
     tri2vtx: &Tensor,
     vtx2xyz: &Tensor,
-    img_shape: &(usize, usize),
+    img_shape: (usize, usize),
     transform_ndc2world: &[f32; 16],
 ) -> candle_core::Result<Tensor> {
     // let time0 = Instant::now();
-    let (bvhnodes, aabbs) = del_msh_candle::bvh::from_trimesh3(tri2vtx, vtx2xyz)?;
+    let (bvhnodes, aabbs) = {
+        let bvhdata = del_msh_candle::bvhnode2aabb::BvhForTriMesh::new(
+            tri2vtx.dims2()?.0,
+            vtx2xyz.dims2()?.1,
+            &Device::Cpu,
+        )?;
+        bvhdata.compute(&tri2vtx, &vtx2xyz)?;
+        (bvhdata.bvhnodes, bvhdata.bvhnode2aabb)
+    };
     // println!("      time for bvh: {:.2?}", time0.elapsed());
     // let time0 = Instant::now();
-    let pix2tri = crate::raycast_trimesh::raycast3(
+    let pix2tri = crate::raycast_trimesh::pix2tri_for_trimesh3(
         tri2vtx,
         vtx2xyz,
         &bvhnodes,
@@ -304,7 +317,7 @@ pub fn render(
     let render = Layer {
         tri2vtx: tri2vtx.clone(),
         pix2tri: pix2tri.clone(),
-        img_shape: *img_shape,
+        img_shape: img_shape,
         transform_nbc2world: *transform_ndc2world,
     };
     vtx2xyz.apply_op1(render)

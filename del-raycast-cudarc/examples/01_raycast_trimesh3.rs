@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()> {
         .collect();
     del_canvas::write_png_from_float_image_grayscale(
         "target/raycast_trimesh3_silhouette.png",
-        &img_size,
+        img_size,
         &pix2flag,
     )?;
     dbg!(tri2vtx.len());

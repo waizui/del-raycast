@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
                     )
                     .unwrap();
                     let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
-                    let mut c = del_canvas::texture::nearest_integer_center::<3>(
+                    let c = del_canvas::texture::nearest_integer_center::<3>(
                         &[
                             tex_coord[0] * tex_shape.0 as f32,
                             tex_coord[1] * tex_shape.1 as f32,

@@ -1,4 +1,5 @@
-use candle_core::{CpuStorage, Layout, Shape, Tensor};
+#[allow(unused_imports)]
+use candle_core::{CpuStorage, Device, Layout, Shape, Tensor};
 use std::ops::Deref;
 
 pub struct Layer {
@@ -203,7 +204,12 @@ fn test_optimize_vtxcolor() -> anyhow::Result<()> {
     )
     .unwrap();
     let pix2tri = {
-        let (bvhnodes, aabbs) = del_msh_candle::bvh::from_trimesh2(&tri2vtx, &vtx2xy)?;
+        let (bvhnodes, aabbs) = {
+            let bvhdata =
+                del_msh_candle::bvhnode2aabb::BvhForTriMesh::new(num_tri, 2, &Device::Cpu)?;
+            bvhdata.compute(&tri2vtx, &vtx2xy)?;
+            (bvhdata.bvhnodes, bvhdata.bvhnode2aabb)
+        };
         let pix2tri = crate::raycast_trimesh::raycast2(
             &tri2vtx,
             &vtx2xy,
@@ -247,7 +253,7 @@ fn test_optimize_vtxcolor() -> anyhow::Result<()> {
                     "../target/render_meshtri2_vtxcolor-test_optimize_vtxcolor_{}.png",
                     i_itr
                 ),
-                &img_shape,
+                img_shape,
                 &img_out_vec,
             )?;
         }

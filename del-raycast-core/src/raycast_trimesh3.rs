@@ -7,7 +7,7 @@ pub fn pix2tri<Index>(
     vtx2xyz: &[f32],
     bvhnodes: &[Index],
     bvhnode2aabb: &[f32],
-    img_shape: &(usize, usize), // (width, height)
+    img_shape: (usize, usize), // (width, height)
     transform_ndc2world: &[f32; 16],
 ) -> Vec<Index>
 where
@@ -84,7 +84,7 @@ pub fn render_depth_bvh(
     for ih in 0..height {
         for iw in 0..width {
             let (ray_org, ray_dir) =
-                crate::cam3::ray3_homogeneous((iw, ih), &image_size, transform_ndc2world);
+                crate::cam3::ray3_homogeneous((iw, ih), image_size, transform_ndc2world);
             let mut hits = vec![];
             del_msh_core::search_bvh3::intersections_ray(
                 &mut hits,
@@ -162,7 +162,7 @@ where
     for ih in 0..height {
         for iw in 0..width {
             let (ray_org, ray_dir) =
-                crate::cam3::ray3_homogeneous((iw, ih), &img_shape, transform_ndc2world);
+                crate::cam3::ray3_homogeneous((iw, ih), img_shape, transform_ndc2world);
             let i_tri = pix2tri[ih * width + iw];
             if i_tri == Index::max_value() {
                 continue;

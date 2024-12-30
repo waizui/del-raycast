@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-cuda = ["candle-core/cuda", "del-raycast-cudarc/cuda"]
+cuda = ["candle-core/cuda", "del-raycast-cudarc/cuda", "del-msh-candle/cuda"]
 
 [dependencies]
 rand.workspace = true
@@ -24,6 +24,7 @@ del-fem-ls.workspace = true
 del-fem-core.workspace = true
 candle-core = { git = "https://github.com/huggingface/candle.git"}
 del-msh-candle = { git = "https://github.com/nobuyuki83/del-msh.git" }
+# del-msh-candle = { path = "../../del-msh/del-msh-candle" }
 
 [dev-dependencies]
 image.workspace = true

@@ -53,12 +53,12 @@ pub fn raycast2(
     Ok(img)
 }
 
-pub fn raycast3(
+pub fn pix2tri_for_trimesh3(
     tri2vtx: &candle_core::Tensor,
     vtx2xyz: &candle_core::Tensor,
     bvhnodes: &candle_core::Tensor,
-    aabbs: &candle_core::Tensor,
-    img_shape: &(usize, usize),      // (width, height)
+    bvhnode2aabb: &candle_core::Tensor,
+    img_shape: (usize, usize),       // (width, height)
     transform_ndc2world: &[f32; 16], // transform column major
 ) -> candle_core::Result<candle_core::Tensor> {
     let tri2vtx = tri2vtx.storage_and_layout().0;
@@ -73,7 +73,7 @@ pub fn raycast3(
         candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
         _ => panic!(),
     };
-    let aabbs = aabbs.storage_and_layout().0;
+    let aabbs = bvhnode2aabb.storage_and_layout().0;
     let aabbs = match aabbs.deref() {
         candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
         _ => panic!(),
@@ -91,6 +91,6 @@ pub fn raycast3(
         img_shape,
         transform_ndc2world,
     );
-    let img = candle_core::Tensor::from_vec(img, *img_shape, &candle_core::Device::Cpu)?;
+    let img = candle_core::Tensor::from_vec(img, img_shape, &candle_core::Device::Cpu)?;
     Ok(img)
 }
