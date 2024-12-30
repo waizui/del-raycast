@@ -247,7 +247,7 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
             let material = &self.materials[i_material];
             match material {
                 del_raycast_core::material::Material::None => 100f32,
-                del_raycast_core::material::Material::Diff(diff) => 100f32,
+                del_raycast_core::material::Material::Diff(_diff) => 100f32,
                 del_raycast_core::material::Material::Cond(cond) => {
                     cond.uroughness.max(cond.vroughness)
                 }

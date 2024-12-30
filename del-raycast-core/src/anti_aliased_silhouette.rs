@@ -47,7 +47,7 @@ impl Iterator for Hoge {
         let i_pix1 = self.list_i_pix[idx1];
         let c0 = self.list_pos_c[idx0];
         let c1 = self.list_pos_c[idx1];
-        self.i_cnt = self.i_cnt + 1;
+        self.i_cnt += 1;
         Some((i_pix0, c0, i_pix1, c1))
     }
 }
@@ -62,14 +62,14 @@ pub fn update_image(
     for node2vtx in edge2vtx_contour.chunks(2) {
         use del_geo_core::vec3::Vec3;
         let (i0_vtx, i1_vtx) = (node2vtx[0], node2vtx[1]);
-        let q0 = del_msh_core::vtx2xyz::to_xyz(&vtx2xyz, i0_vtx as usize)
+        let q0 = del_msh_core::vtx2xyz::to_xyz(vtx2xyz, i0_vtx as usize)
             .p
-            .transform_homogeneous(&transform_world2pix)
+            .transform_homogeneous(transform_world2pix)
             .unwrap()
             .xy();
-        let q1 = del_msh_core::vtx2xyz::to_xyz(&vtx2xyz, i1_vtx as usize)
+        let q1 = del_msh_core::vtx2xyz::to_xyz(vtx2xyz, i1_vtx as usize)
             .p
-            .transform_homogeneous(&transform_world2pix)
+            .transform_homogeneous(transform_world2pix)
             .unwrap()
             .xy();
         let v01 = del_geo_core::vec2::sub(&q1, &q0);
@@ -81,11 +81,11 @@ pub fn update_image(
                 if pix2tri[i_pix0] == u32::MAX || pix2tri[i_pix1] != u32::MAX {
                     continue;
                 }
-                let Some((rc, re)) = del_geo_core::edge2::intersection_edge2(&c0, &c1, &q1, &q0)
+                let Some((rc, _re)) = del_geo_core::edge2::intersection_edge2(&c0, &c1, &q1, &q0)
                 else {
                     continue;
                 };
-                assert!(rc >= 0. && rc <= 1.0);
+                assert!((0. ..1.0).contains(&rc));
                 if rc < 0.5 {
                     img_data[i_pix0] = 0.5 + rc;
                 } else {
@@ -111,10 +111,10 @@ pub fn backward_wrt_vtx2xyz(
     for node2vtx in edge2vtx_contour.chunks(2) {
         use del_geo_core::vec3::Vec3;
         let (i0_vtx, i1_vtx) = (node2vtx[0], node2vtx[1]);
-        let p0 = del_msh_core::vtx2xyz::to_xyz(&vtx2xyz, i0_vtx as usize).p;
-        let p1 = del_msh_core::vtx2xyz::to_xyz(&vtx2xyz, i1_vtx as usize).p;
-        let q0 = p0.transform_homogeneous(&transform_world2pix).unwrap().xy();
-        let q1 = p1.transform_homogeneous(&transform_world2pix).unwrap().xy();
+        let p0 = del_msh_core::vtx2xyz::to_xyz(vtx2xyz, i0_vtx as usize).p;
+        let p1 = del_msh_core::vtx2xyz::to_xyz(vtx2xyz, i1_vtx as usize).p;
+        let q0 = p0.transform_homogeneous(transform_world2pix).unwrap().xy();
+        let q1 = p1.transform_homogeneous(transform_world2pix).unwrap().xy();
         let v01 = del_geo_core::vec2::sub(&q1, &q0);
         let is_horizontal = v01[0].abs() < v01[1].abs();
         let list_pix = del_geo_core::edge2::overlapping_pixels_dda(img_shape, &q0, &q1);
@@ -129,7 +129,7 @@ pub fn backward_wrt_vtx2xyz(
                     continue;
                 };
                 // ---------------------------------
-                assert!(rc >= 0. && rc <= 1.0);
+                assert!((0. ..=1.0).contains(&rc));
                 let dldr0 = if rc < 0.5 {
                     dldw_img_data[i_pix0]
                 } else {
@@ -137,8 +137,8 @@ pub fn backward_wrt_vtx2xyz(
                 };
                 let (_dlc0, _dlc1, dldq1, dldq0) =
                     del_geo_core::edge2::dldw_intersection_edge2(&c0, &c1, &q1, &q0, dldr0, 0.0);
-                let dqdp0 = mat4_col_major::jacobian_transform(&transform_world2pix, p0);
-                let dqdp1 = mat4_col_major::jacobian_transform(&transform_world2pix, p0);
+                let dqdp0 = mat4_col_major::jacobian_transform(transform_world2pix, p0);
+                let dqdp1 = mat4_col_major::jacobian_transform(transform_world2pix, p0);
                 let dqdp0 = mat3_col_major::to_mat2x3_col_major_xy(&dqdp0);
                 let dqdp1 = mat3_col_major::to_mat2x3_col_major_xy(&dqdp1);
                 let dldp0 = mat2x3_col_major::mult_transpose_vec3(&dqdp0, &dldq0);

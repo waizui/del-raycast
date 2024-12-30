@@ -298,7 +298,7 @@ pub fn render(
             vtx2xyz.dims2()?.1,
             &Device::Cpu,
         )?;
-        bvhdata.compute(&tri2vtx, &vtx2xyz)?;
+        bvhdata.compute(tri2vtx, vtx2xyz)?;
         (bvhdata.bvhnodes, bvhdata.bvhnode2aabb)
     };
     // println!("      time for bvh: {:.2?}", time0.elapsed());
@@ -317,7 +317,7 @@ pub fn render(
     let render = Layer {
         tri2vtx: tri2vtx.clone(),
         pix2tri: pix2tri.clone(),
-        img_shape: img_shape,
+        img_shape,
         transform_nbc2world: *transform_ndc2world,
     };
     vtx2xyz.apply_op1(render)

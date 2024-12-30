@@ -2,7 +2,7 @@
 use candle_core::{Device, Tensor, Var};
 use std::ops::Deref;
 
-fn anti_aliased_silhouette_update_image(
+pub fn anti_aliased_silhouette_update_image(
     edge2vtx_contour: &Tensor,
     vtx2xyz: &Tensor,
     transform_world2pix: &[f32; 16],

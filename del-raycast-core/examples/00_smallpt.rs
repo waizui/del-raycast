@@ -211,7 +211,7 @@ fn main() {
     }
     {
         use image::codecs::hdr::HdrEncoder;
-        let mut file = std::fs::File::create("target/00_smallpt.hdr").unwrap();
+        let file = std::fs::File::create("target/00_smallpt.hdr").unwrap();
         let enc = HdrEncoder::new(file);
         let _ = enc.encode(&img, cam.w, cam.h);
     }
