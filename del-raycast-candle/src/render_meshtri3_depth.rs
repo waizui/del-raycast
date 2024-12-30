@@ -5,8 +5,7 @@ use std::ops::Deref;
 pub struct Layer {
     pub tri2vtx: Tensor,
     pub pix2tri: Tensor,
-    pub img_shape: (usize, usize),      // (width, height)
-    pub transform_nbc2world: [f32; 16], // transform column major
+    pub transform_nbc2world: Tensor, // transform column major
 }
 
 impl candle_core::CustomOp1 for Layer {
@@ -21,28 +20,40 @@ impl candle_core::CustomOp1 for Layer {
     ) -> candle_core::Result<(CpuStorage, Shape)> {
         let (_num_vtx, three) = layout.shape().dims2()?;
         assert_eq!(three, 3);
+        //
         let tri2vtx = self.tri2vtx.storage_and_layout().0;
         let tri2vtx = match tri2vtx.deref() {
             candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<u32>()?,
             _ => panic!(),
         };
+        //
         let vtx2xyz = storage.as_slice::<f32>()?;
+        //
         let img2tri = self.pix2tri.storage_and_layout().0;
         let img2tri = match img2tri.deref() {
             candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<u32>()?,
             _ => panic!(),
         };
-        let mut pix2depth = vec![0f32; self.img_shape.0 * self.img_shape.1];
-        for i_h in 0..self.img_shape.1 {
-            for i_w in 0..self.img_shape.0 {
-                let i_tri = img2tri[i_h * self.img_shape.0 + i_w];
+        //
+        let storage = self.transform_nbc2world.storage_and_layout().0;
+        let transform_ndc2world = match storage.deref() {
+            candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
+            _ => panic!(),
+        };
+        let transform_ndc2world = arrayref::array_ref![transform_ndc2world, 0, 16];
+        //
+        let img_shape = (self.pix2tri.dim(0)?, self.pix2tri.dim(1)?);
+        let mut pix2depth = vec![0f32; img_shape.0 * img_shape.1];
+        for i_h in 0..img_shape.1 {
+            for i_w in 0..img_shape.0 {
+                let i_tri = img2tri[i_h * img_shape.0 + i_w];
                 if i_tri == u32::MAX {
                     continue;
                 }
                 let (ray_org, ray_dir) = del_raycast_core::cam3::ray3_homogeneous(
                     (i_w, i_h),
-                    self.img_shape,
-                    &self.transform_nbc2world,
+                    img_shape,
+                    transform_ndc2world,
                 );
                 let (p0, p1, p2) =
                     del_msh_core::trimesh3::to_corner_points(tri2vtx, vtx2xyz, i_tri as usize);
@@ -51,11 +62,11 @@ impl candle_core::CustomOp1 for Layer {
                 )
                 .unwrap();
                 // let q = del_geo::vec3::axpy_(coeff, &ray_dir, &ray_org);
-                pix2depth[i_h * self.img_shape.0 + i_w] =
+                pix2depth[i_h * img_shape.0 + i_w] =
                     (1. - coeff) * del_geo_core::vec3::norm(&ray_dir);
             }
         }
-        let shape = candle_core::Shape::from((self.img_shape.1, self.img_shape.0));
+        let shape = candle_core::Shape::from((img_shape.1, img_shape.0));
         let storage = candle_core::WithDType::to_cpu_storage_owned(pix2depth);
         Ok((storage, shape))
     }
@@ -89,6 +100,13 @@ impl candle_core::CustomOp1 for Layer {
             candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<u32>()?,
             _ => panic!(),
         };
+        let storage = self.transform_nbc2world.storage_and_layout().0;
+        let transform_ndc2world = match storage.deref() {
+            candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
+            _ => panic!(),
+        };
+        let transform_ndc2world = arrayref::array_ref![transform_ndc2world, 0, 16];
+        //
         let dw_pix2depth = dw_pix2depth.storage_and_layout().0;
         let dw_pix2depth = match dw_pix2depth.deref() {
             candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
@@ -98,14 +116,14 @@ impl candle_core::CustomOp1 for Layer {
         let mut dw_vtx2xyz = vec![0f32; num_vtx * 3];
         for i_h in 0..height {
             for i_w in 0..width {
-                let i_tri = pix2tri[i_h * self.img_shape.0 + i_w];
+                let i_tri = pix2tri[i_h * width + i_w];
                 if i_tri == u32::MAX {
                     continue;
                 }
                 let (ray_org, ray_dir) = del_raycast_core::cam3::ray3_homogeneous(
                     (i_w, i_h),
-                    self.img_shape,
-                    &self.transform_nbc2world,
+                    (width, height),
+                    transform_ndc2world,
                 );
                 let i_tri = i_tri as usize;
                 let (p0, p1, p2) =
@@ -119,7 +137,7 @@ impl candle_core::CustomOp1 for Layer {
                 ) else {
                     continue;
                 };
-                let dw_depth = dw_pix2depth[i_h * self.img_shape.0 + i_w];
+                let dw_depth = dw_pix2depth[i_h * width + i_w];
                 let (dw_p0, dw_p1, dw_p2) =
                     del_geo_nalgebra::tri3::dw_ray_triangle_intersection_(-dw_depth, 0., 0., &data);
                 let scale = data.dir.norm();
@@ -197,10 +215,11 @@ fn test_optimize_depth() -> anyhow::Result<()> {
                 img2mask[i_h * img_shape.0 + i_w] = 1.0;
             }
         }
-        let img2depth_trg = Tensor::from_vec(img2depth_trg, img_shape, &candle_core::Device::Cpu)?;
-        let img2mask = Tensor::from_vec(img2mask, img_shape, &candle_core::Device::Cpu)?;
+        let img2depth_trg = Tensor::from_vec(img2depth_trg, img_shape, &Device::Cpu)?;
+        let img2mask = Tensor::from_vec(img2mask, img_shape, &Device::Cpu)?;
         (img2depth_trg, img2mask)
     };
+    let transform_ndc2world = Tensor::from_vec(transform_ndc2world.to_vec(), 16, &Device::Cpu)?;
     {
         let pix2depth_trg = pix2depth_trg.flatten_all()?.to_vec1::<f32>()?;
         del_canvas::write_png_from_float_image_grayscale(
@@ -245,7 +264,6 @@ fn test_optimize_depth() -> anyhow::Result<()> {
         let render = Layer {
             tri2vtx: tri2vtx.clone(),
             pix2tri: pix2tri.clone(),
-            img_shape,
             transform_nbc2world: transform_ndc2world.clone(),
         };
         let pix2depth = vtx2xyz.apply_op1(render)?;
@@ -289,7 +307,7 @@ pub fn render(
     tri2vtx: &Tensor,
     vtx2xyz: &Tensor,
     img_shape: (usize, usize),
-    transform_ndc2world: &[f32; 16],
+    transform_ndc2world: &Tensor,
 ) -> candle_core::Result<Tensor> {
     // let time0 = Instant::now();
     let (bvhnodes, aabbs) = {
@@ -317,8 +335,7 @@ pub fn render(
     let render = Layer {
         tri2vtx: tri2vtx.clone(),
         pix2tri: pix2tri.clone(),
-        img_shape,
-        transform_nbc2world: *transform_ndc2world,
+        transform_nbc2world: transform_ndc2world.clone(),
     };
     vtx2xyz.apply_op1(render)
     // println!("      time for render depth: {:.2?}", time0.elapsed());

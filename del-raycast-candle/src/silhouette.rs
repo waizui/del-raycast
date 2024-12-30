@@ -1,5 +1,5 @@
 #[allow(unused_imports)]
-use candle_core::{Device, Tensor, Var};
+use candle_core::{DType, Device, Tensor, Var};
 use std::ops::Deref;
 
 pub fn anti_aliased_silhouette_update_image(
@@ -66,9 +66,7 @@ fn test_cpu() -> anyhow::Result<()> {
         del_geo_core::mat4_col_major::camera_perspective_blender(img_asp, 24f32, 0.3, 10.0, true);
     let cam_modelview =
         del_geo_core::mat4_col_major::camera_external_blender(&[0., 0., 2.0], 0., 0., 0.);
-
     // ----------------------
-
     let transform_world2ndc =
         del_geo_core::mat4_col_major::mult_mat(&cam_projection, &cam_modelview);
     let transform_ndc2world =
@@ -79,6 +77,7 @@ fn test_cpu() -> anyhow::Result<()> {
             del_geo_core::mat4_col_major::from_mat3_col_major_adding_z(&transform_ndc2pix);
         del_geo_core::mat4_col_major::mult_mat(&transform_ndc2pix, &transform_world2ndc)
     };
+    let transform_ndc2world = Tensor::from_vec(transform_ndc2world.to_vec(), 16, &Device::Cpu)?;
     let pix2tri = crate::raycast_trimesh::pix2tri_for_trimesh3(
         &tri2vtx,
         &vtx2xyz,
@@ -100,5 +99,29 @@ fn test_cpu() -> anyhow::Result<()> {
         img_shape,
         &img.flatten_all()?.to_vec1::<f32>()?,
     )?;
+    #[cfg(feature = "cuda")]
+    {
+        let device = Device::cuda_if_available(0)?;
+        let tri2vtx = tri2vtx.to_device(&device)?;
+        let vtx2xyz = vtx2xyz.to_device(&device)?;
+        let transform_ndc2world = transform_ndc2world.to_device(&device)?;
+        let bvhdata =
+            del_msh_candle::bvhnode2aabb::BvhForTriMesh::from_trimesh(&tri2vtx, &vtx2xyz)?;
+        let pix2tri_cpu = pix2tri.flatten_all()?.to_vec1::<u32>()?;
+        let pix2tri = Tensor::zeros(img_shape, DType::U32, &device)?;
+        let layer = crate::pix2tri::Pix2Tri {
+            bvhnodes: bvhdata.bvhnodes,
+            bvhnode2aabb: bvhdata.bvhnode2aabb,
+            transform_ndc2world,
+        };
+        pix2tri.inplace_op3(&tri2vtx, &vtx2xyz, &layer)?;
+        let pix2tri_gpu = pix2tri.flatten_all()?.to_vec1::<u32>()?;
+        pix2tri_cpu
+            .iter()
+            .zip(pix2tri_gpu.iter())
+            .for_each(|(&a, &b)| {
+                assert_eq!(a, b);
+            })
+    }
     Ok(())
 }

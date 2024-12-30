@@ -1,13 +1,14 @@
+use candle_core::Tensor;
 use std::ops::Deref;
 
 pub fn raycast2(
-    tri2vtx: &candle_core::Tensor,
-    vtx2xy: &candle_core::Tensor,
-    bvhnodes: &candle_core::Tensor,
-    aabbs: &candle_core::Tensor,
+    tri2vtx: &Tensor,
+    vtx2xy: &Tensor,
+    bvhnodes: &Tensor,
+    aabbs: &Tensor,
     img_shape: &(usize, usize),  // (width, height)
     transform_xy2pix: &[f32; 9], // transform column major
-) -> candle_core::Result<candle_core::Tensor> {
+) -> candle_core::Result<Tensor> {
     let tri2vtx = tri2vtx.storage_and_layout().0;
     let tri2vtx = match tri2vtx.deref() {
         candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<u32>()?,
@@ -49,48 +50,28 @@ pub fn raycast2(
             img[i_h * img_shape.0 + i_w] = i_tri;
         }
     }
-    let img = candle_core::Tensor::from_vec(img, *img_shape, &candle_core::Device::Cpu)?;
+    let img = Tensor::from_vec(img, *img_shape, &candle_core::Device::Cpu)?;
     Ok(img)
 }
 
 pub fn pix2tri_for_trimesh3(
-    tri2vtx: &candle_core::Tensor,
-    vtx2xyz: &candle_core::Tensor,
-    bvhnodes: &candle_core::Tensor,
-    bvhnode2aabb: &candle_core::Tensor,
-    img_shape: (usize, usize),       // (width, height)
-    transform_ndc2world: &[f32; 16], // transform column major
-) -> candle_core::Result<candle_core::Tensor> {
-    let tri2vtx = tri2vtx.storage_and_layout().0;
-    let tri2vtx = match tri2vtx.deref() {
-        candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<u32>()?,
-        _ => panic!(),
-    };
-    let (_num_vtx, three) = vtx2xyz.shape().dims2()?;
-    assert_eq!(three, 3);
-    let vtx2xyz = vtx2xyz.storage_and_layout().0;
-    let vtx2xyz = match vtx2xyz.deref() {
-        candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
-        _ => panic!(),
-    };
-    let aabbs = bvhnode2aabb.storage_and_layout().0;
-    let aabbs = match aabbs.deref() {
-        candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
-        _ => panic!(),
-    };
-    let bvhnodes = bvhnodes.storage_and_layout().0;
-    let bvhnodes = match bvhnodes.deref() {
-        candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<u32>()?,
-        _ => panic!(),
-    };
-    let img = del_raycast_core::raycast_trimesh3::pix2tri(
-        tri2vtx,
-        vtx2xyz,
-        bvhnodes,
-        aabbs,
+    tri2vtx: &Tensor,
+    vtx2xyz: &Tensor,
+    bvhnodes: &Tensor,
+    bvhnode2aabb: &Tensor,
+    img_shape: (usize, usize),    // (width, height)
+    transform_ndc2world: &Tensor, // transform column major
+) -> candle_core::Result<Tensor> {
+    let pix2tri = Tensor::zeros(
         img_shape,
-        transform_ndc2world,
-    );
-    let img = candle_core::Tensor::from_vec(img, img_shape, &candle_core::Device::Cpu)?;
-    Ok(img)
+        candle_core::DType::U32,
+        &candle_core::Device::Cpu,
+    )?;
+    let layer = crate::pix2tri::Pix2Tri {
+        bvhnodes: bvhnodes.clone(),
+        bvhnode2aabb: bvhnode2aabb.clone(),
+        transform_ndc2world: transform_ndc2world.clone(),
+    };
+    pix2tri.inplace_op3(tri2vtx, vtx2xyz, &layer)?;
+    Ok(pix2tri)
 }

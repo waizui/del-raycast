@@ -92,7 +92,9 @@ fn main() -> anyhow::Result<()> {
         del_geo_core::mat4_col_major::mult_mat(&transform_ndc2pix, &transform_world2ndc)
     };
 
-    let pix2tri = del_raycast_core::raycast_trimesh3::pix2tri(
+    let mut pix2tri = vec![0u32; img_shape.0 * img_shape.1];
+    del_raycast_core::raycast_trimesh3::update_pix2tri(
+        &mut pix2tri,
         &tri2vtx,
         &vtx2xyz,
         &bvhnodes,

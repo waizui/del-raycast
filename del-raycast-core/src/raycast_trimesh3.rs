@@ -1,45 +1,24 @@
 use num_traits::AsPrimitive;
-use rayon::iter::IntoParallelIterator;
-use rayon::iter::ParallelIterator;
 
-pub fn pix2tri<Index>(
+pub fn update_pix2tri<Index>(
+    pix2tri: &mut [Index],
     tri2vtx: &[Index],
     vtx2xyz: &[f32],
     bvhnodes: &[Index],
     bvhnode2aabb: &[f32],
     img_shape: (usize, usize), // (width, height)
     transform_ndc2world: &[f32; 16],
-) -> Vec<Index>
-where
+) where
     Index: num_traits::PrimInt + AsPrimitive<usize> + Sync + Send,
     usize: AsPrimitive<Index>,
 {
-    let tri_for_pix = |i_pix: usize| {
+    assert_eq!(pix2tri.len(), img_shape.0 * img_shape.1);
+    let tri_for_pix = |i_pix: usize| -> Index {
         let i_h = i_pix / img_shape.0;
         let i_w = i_pix - i_h * img_shape.0;
         //
         let (ray_org, ray_dir) =
             crate::cam3::ray3_homogeneous((i_w, i_h), img_shape, transform_ndc2world);
-        /*
-        let mut hits: Vec<(f32, usize)> = vec![];
-        del_msh_core::bvh3::search_intersection_ray::<Index>(
-            &mut hits,
-            &ray_org,
-            &ray_dir,
-            &del_msh_core::bvh3::TriMeshWithBvh {
-                tri2vtx,
-                vtx2xyz,
-                bvhnodes,
-                bvhnode2aabb,
-            },
-            0,
-        );
-        hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        let Some(&(_depth, i_tri)) = hits.first() else {
-            return Index::max_value();
-        };
-        i_tri.as_()
-            */
         if let Some((_t, i_tri)) = del_msh_core::search_bvh3::first_intersection_ray(
             &ray_org,
             &ray_dir,
@@ -57,11 +36,11 @@ where
             Index::max_value()
         }
     };
-    let img: Vec<Index> = (0..img_shape.0 * img_shape.1)
-        .into_par_iter()
-        .map(tri_for_pix)
-        .collect();
-    img
+    use rayon::prelude::*;
+    pix2tri
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i_pix, i_tri)| *i_tri = tri_for_pix(i_pix));
 }
 
 pub fn render_depth_bvh(

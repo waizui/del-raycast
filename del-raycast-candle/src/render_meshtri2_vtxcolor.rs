@@ -3,9 +3,9 @@ use candle_core::{CpuStorage, Device, Layout, Shape, Tensor};
 use std::ops::Deref;
 
 pub struct Layer {
-    tri2vtx: candle_core::Tensor,
-    vtx2xy: candle_core::Tensor,
-    pix2tri: candle_core::Tensor,
+    tri2vtx: Tensor,
+    vtx2xy: Tensor,
+    pix2tri: Tensor,
     img_shape: (usize, usize),  // (width, height)
     transform_xy2pix: [f32; 9], // transform column major
 }

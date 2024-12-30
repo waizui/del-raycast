@@ -35,7 +35,9 @@ fn main() -> anyhow::Result<()> {
         &vtx2xyz,
         None,
     );
-    let pix2tri = del_raycast_core::raycast_trimesh3::pix2tri(
+    let mut pix2tri = vec![0usize; img_shape.0 * img_shape.1];
+    del_raycast_core::raycast_trimesh3::update_pix2tri(
+        &mut pix2tri,
         &tri2vtx,
         &vtx2xyz,
         &bvhnodes,
