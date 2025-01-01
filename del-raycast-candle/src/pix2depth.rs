@@ -1,4 +1,3 @@
-use candle_core::backend::BackendDevice;
 #[cfg(feature = "cuda")]
 use candle_core::CudaStorage;
 use candle_core::{CpuStorage, Layout, Shape, Tensor};
@@ -94,6 +93,7 @@ impl candle_core::InplaceOp3 for BackwardPix2Depth {
         vtx2xyz: &CudaStorage,
         l_vtx2xyz: &Layout,
     ) -> candle_core::Result<()> {
+        use candle_core::backend::BackendDevice;
         use candle_core::cuda_backend::CudaStorageSlice;
         use candle_core::cuda_backend::WrapErr;
         assert_eq!(l_dw_vtx2xyz.shape().dims2()?, l_vtx2xyz.shape().dims2()?);
