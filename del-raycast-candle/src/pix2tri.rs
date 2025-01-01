@@ -136,3 +136,22 @@ impl candle_core::InplaceOp3 for Pix2Tri {
         Ok(())
     }
 }
+
+pub fn from_trimesh3(
+    tri2vtx: &Tensor,
+    vtx2xyz: &Tensor,
+    bvhnodes: &Tensor,
+    bvhnode2aabb: &Tensor,
+    img_shape: (usize, usize),    // (width, height)
+    transform_ndc2world: &Tensor, // transform column major
+) -> candle_core::Result<Tensor> {
+    let device = tri2vtx.device();
+    let pix2tri = Tensor::zeros(img_shape, candle_core::DType::U32, device)?;
+    let layer = crate::pix2tri::Pix2Tri {
+        bvhnodes: bvhnodes.clone(),
+        bvhnode2aabb: bvhnode2aabb.clone(),
+        transform_ndc2world: transform_ndc2world.clone(),
+    };
+    pix2tri.inplace_op3(tri2vtx, vtx2xyz, &layer)?;
+    Ok(pix2tri)
+}

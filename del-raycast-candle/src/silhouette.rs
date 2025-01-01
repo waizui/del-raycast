@@ -78,7 +78,7 @@ fn test_cpu() -> anyhow::Result<()> {
         del_geo_core::mat4_col_major::mult_mat(&transform_ndc2pix, &transform_world2ndc)
     };
     let transform_ndc2world = Tensor::from_vec(transform_ndc2world.to_vec(), 16, &Device::Cpu)?;
-    let pix2tri = crate::raycast_trimesh::pix2tri_for_trimesh3(
+    let pix2tri = crate::pix2tri::from_trimesh3(
         &tri2vtx,
         &vtx2xyz,
         &bvhnodes,
