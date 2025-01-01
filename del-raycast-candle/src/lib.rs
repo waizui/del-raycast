@@ -10,9 +10,9 @@ macro_rules! get_cpu_slice_from_tensor {
 
 #[cfg(feature = "cuda")]
 macro_rules! get_cuda_slice_from_tensor {
-    ($slc: ident, $storage: ident, $layout: ident, $tnsr: expr, $t: ty) => {
-        let ($storage, $layout) = $tnsr.storage_and_layout();
-        let $slc = match $storage.deref() {
+    ($slice: ident, $storage: ident, $layout: ident, $tensor: expr, $t: ty) => {
+        let ($storage, $layout) = $tensor.storage_and_layout();
+        let $slice = match $storage.deref() {
             candle_core::Storage::Cuda(cuda_storage) => cuda_storage.as_cuda_slice::<$t>()?,
             _ => panic!(),
         };

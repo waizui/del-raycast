@@ -1,55 +1,134 @@
-use candle_core::{CpuStorage, Device, Layout, Shape, Tensor};
-use std::ops::Deref;
-
+use candle_core::backend::BackendDevice;
 #[cfg(feature = "cuda")]
 use candle_core::CudaStorage;
+use candle_core::{CpuStorage, Layout, Shape, Tensor};
+use std::ops::Deref;
 
-pub fn hoge(
+pub fn update_bwd_wrt_vtx2xyz(
+    dw_vtx2xyz: &mut [f32],
     tri2vtx: &[u32],
     vtx2xyz: &[f32],
     (width, height): (usize, usize),
     pix2tri: &[u32],
     dw_pix2depth: &[f32],
     transform_ndc2world: &[f32; 16],
-) -> Vec<f32> {
-    let num_vtx = vtx2xyz.len() / 3;
-    let mut dw_vtx2xyz = vec![0f32; num_vtx * 3];
-    for i_h in 0..height {
-        for i_w in 0..width {
-            let i_tri = pix2tri[i_h * width + i_w];
-            if i_tri == u32::MAX {
-                continue;
-            }
-            let (ray_org, ray_dir) = del_raycast_core::cam3::ray3_homogeneous(
-                (i_w, i_h),
-                (width, height),
-                transform_ndc2world,
-            );
-            let i_tri = i_tri as usize;
-            let (p0, p1, p2) = del_msh_core::trimesh3::to_corner_points(tri2vtx, vtx2xyz, i_tri);
-            let Some((_t, _u, _v, data)) =
-                del_geo_core::tri3::ray_triangle_intersection(&ray_org, &ray_dir, &p0, &p1, &p2)
-            else {
-                continue;
-            };
-            let dw_depth = dw_pix2depth[i_h * width + i_w];
-            let (dw_p0, dw_p1, dw_p2) =
-                del_geo_core::tri3::dldw_ray_triangle_intersection_(-dw_depth, 0., 0., &data);
-            use del_geo_core::vec3::Vec3;
-            let scale = data.dir.norm();
-            let dw_p0 = dw_p0.scale(scale);
-            let dw_p1 = dw_p1.scale(scale);
-            let dw_p2 = dw_p2.scale(scale);
-            let iv0 = tri2vtx[i_tri * 3] as usize;
-            let iv1 = tri2vtx[i_tri * 3 + 1] as usize;
-            let iv2 = tri2vtx[i_tri * 3 + 2] as usize;
-            arrayref::array_mut_ref![dw_vtx2xyz, iv0 * 3, 3].add_in_place(&dw_p0);
-            arrayref::array_mut_ref![dw_vtx2xyz, iv1 * 3, 3].add_in_place(&dw_p1);
-            arrayref::array_mut_ref![dw_vtx2xyz, iv2 * 3, 3].add_in_place(&dw_p2);
+) {
+    for i_pix in 0..width * height {
+        let i_tri = pix2tri[i_pix];
+        if i_tri == u32::MAX {
+            continue;
         }
+        let (ray_org, ray_dir) = del_raycast_core::cam3::ray3_homogeneous(
+            (i_pix % width, i_pix / height),
+            (width, height),
+            transform_ndc2world,
+        );
+        let i_tri = i_tri as usize;
+        let (p0, p1, p2) = del_msh_core::trimesh3::to_corner_points(tri2vtx, vtx2xyz, i_tri);
+        let dw_depth = dw_pix2depth[i_pix];
+        let (_t, _u, _v, dw_p0, dw_p1, dw_p2) =
+            del_geo_core::tri3::intersection_against_line_bwd_wrt_tri(
+                &p0, &p1, &p2, &ray_org, &ray_dir, -dw_depth, 0., 0.,
+            )
+            .unwrap();
+        use del_geo_core::vec3::Vec3;
+        let dw_p0 = dw_p0.scale(2.0);
+        let dw_p1 = dw_p1.scale(2.0);
+        let dw_p2 = dw_p2.scale(2.0);
+        let iv0 = tri2vtx[i_tri * 3] as usize;
+        let iv1 = tri2vtx[i_tri * 3 + 1] as usize;
+        let iv2 = tri2vtx[i_tri * 3 + 2] as usize;
+        arrayref::array_mut_ref![dw_vtx2xyz, iv0 * 3, 3].add_in_place(&dw_p0);
+        arrayref::array_mut_ref![dw_vtx2xyz, iv1 * 3, 3].add_in_place(&dw_p1);
+        arrayref::array_mut_ref![dw_vtx2xyz, iv2 * 3, 3].add_in_place(&dw_p2);
     }
-    dw_vtx2xyz
 }
+
+struct BackwardPix2Depth {
+    dw_pix2depth: Tensor,
+    pix2tri: Tensor,
+    transform_ndc2world: Tensor,
+}
+
+impl candle_core::InplaceOp3 for BackwardPix2Depth {
+    fn name(&self) -> &'static str {
+        "bwd_pix2depth_wrt_vtx2xyz"
+    }
+    fn cpu_fwd(
+        &self,
+        dw_vtx2xyz: &mut CpuStorage,
+        _l_dw_vtx2xyz: &Layout,
+        tri2vtx: &CpuStorage,
+        _l_tri2vtx: &Layout,
+        vtx2xyz: &CpuStorage,
+        _l_vtx2xyz: &Layout,
+    ) -> candle_core::Result<()> {
+        let img_shape = (self.pix2tri.dim(1)?, self.pix2tri.dim(0)?);
+        let dw_vtx2xyz = match dw_vtx2xyz {
+            CpuStorage::F32(cpu_storage) => cpu_storage,
+            _ => panic!(),
+        };
+        get_cpu_slice_from_tensor!(pix2tri, storage, self.pix2tri, u32);
+        get_cpu_slice_from_tensor!(dw_pix2depth, storage, self.dw_pix2depth, f32);
+        get_cpu_slice_from_tensor!(transform_ndc2world, storage, self.transform_ndc2world, f32);
+        let transform_ndc2world = arrayref::array_ref![transform_ndc2world, 0, 16];
+        update_bwd_wrt_vtx2xyz(
+            dw_vtx2xyz.as_mut_slice(),
+            tri2vtx.as_slice::<u32>()?,
+            vtx2xyz.as_slice::<f32>()?,
+            img_shape,
+            pix2tri,
+            dw_pix2depth,
+            transform_ndc2world,
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "cuda")]
+    fn cuda_fwd(
+        &self,
+        dw_vtx2xyz: &mut CudaStorage,
+        l_dw_vtx2xyz: &Layout,
+        tri2vtx: &CudaStorage,
+        l_tri2vtx: &Layout,
+        vtx2xyz: &CudaStorage,
+        l_vtx2xyz: &Layout,
+    ) -> candle_core::Result<()> {
+        use candle_core::cuda_backend::CudaStorageSlice;
+        use candle_core::cuda_backend::WrapErr;
+        assert_eq!(l_dw_vtx2xyz.shape().dims2()?, l_vtx2xyz.shape().dims2()?);
+        assert_eq!(l_tri2vtx.shape().dims2()?.1, 3);
+        let img_shape = (self.pix2tri.dim(1)?, self.pix2tri.dim(0)?);
+        get_cuda_slice_from_tensor!(pix2tri, storage, _layout, self.pix2tri, u32);
+        get_cuda_slice_from_tensor!(dw_pix2depth, storage, _layout, self.dw_pix2depth, f32);
+        get_cuda_slice_from_tensor!(
+            transform_ndc2world,
+            storage,
+            _layout,
+            self.transform_ndc2world,
+            f32
+        );
+        get_cuda_slice_from_storage_f32!(dw_vtx2xyz, device_dw_vtx2xyz, dw_vtx2xyz);
+        get_cuda_slice_from_storage_u32!(tri2vtx, device_tri2vtx, tri2vtx);
+        get_cuda_slice_from_storage_f32!(vtx2xyz, device_vtx2xyz, vtx2xyz);
+        assert!(device_dw_vtx2xyz.same_device(device_tri2vtx));
+        assert!(device_dw_vtx2xyz.same_device(device_vtx2xyz));
+        del_raycast_cudarc::pix2depth::bwd_wrt_vtx2xyz(
+            device_dw_vtx2xyz,
+            img_shape,
+            &mut dw_vtx2xyz.slice_mut(..),
+            pix2tri,
+            tri2vtx,
+            vtx2xyz,
+            dw_pix2depth,
+            transform_ndc2world,
+        )
+        .w()?;
+        Ok(())
+    }
+}
+
+// ---------------------------------
 
 pub struct Pix2Depth {
     pub tri2vtx: Tensor,
@@ -139,7 +218,7 @@ impl candle_core::CustomOp1 for Pix2Depth {
             f32
         );
         let mut pix2depth = unsafe { device.alloc::<f32>(img_shape.0 * img_shape.1) }.w()?;
-        del_raycast_cudarc::pix2depth::pix2depth(
+        del_raycast_cudarc::pix2depth::fwd(
             device,
             img_shape,
             &mut pix2depth,
@@ -160,47 +239,17 @@ impl candle_core::CustomOp1 for Pix2Depth {
     fn bwd(
         &self,
         vtx2xyz: &Tensor,
-        pix2depth: &Tensor,
+        _pix2depth: &Tensor,
         dw_pix2depth: &Tensor,
     ) -> candle_core::Result<Option<Tensor>> {
-        match vtx2xyz.device() {
-            Device::Cpu => {
-                let (num_vtx, three) = vtx2xyz.shape().dims2()?;
-                assert_eq!(three, 3);
-                assert_eq!(pix2depth.shape(), dw_pix2depth.shape());
-                let (height, width) = pix2depth.shape().dims2()?;
-                get_cpu_slice_from_tensor!(tri2vtx, storage, self.tri2vtx, u32);
-                get_cpu_slice_from_tensor!(vtx2xyz, storage, vtx2xyz, f32);
-                get_cpu_slice_from_tensor!(pix2tri, storage, self.pix2tri, u32);
-                get_cpu_slice_from_tensor!(
-                    transform_ndc2world,
-                    storage,
-                    self.transform_ndc2world,
-                    f32
-                );
-                let transform_ndc2world = arrayref::array_ref![transform_ndc2world, 0, 16];
-                get_cpu_slice_from_tensor!(dw_pix2depth, storage, dw_pix2depth, f32);
-                let dw_vtx2xyz = hoge(
-                    tri2vtx,
-                    vtx2xyz,
-                    (width, height),
-                    pix2tri,
-                    dw_pix2depth,
-                    transform_ndc2world,
-                );
-                //
-                let dw_vtx2xyz = Tensor::from_vec(
-                    dw_vtx2xyz,
-                    candle_core::Shape::from((num_vtx, 3)),
-                    &Device::Cpu,
-                )?;
-                Ok(Some(dw_vtx2xyz))
-            }
-            Device::Cuda(_cuda_device) => {
-                todo!()
-            }
-            _ => panic!(),
-        }
+        let dw_vtx2xyz = Tensor::zeros_like(vtx2xyz)?;
+        let op = BackwardPix2Depth {
+            pix2tri: self.pix2tri.clone(),
+            transform_ndc2world: self.transform_ndc2world.clone(),
+            dw_pix2depth: dw_pix2depth.clone(),
+        };
+        dw_vtx2xyz.inplace_op3(&self.tri2vtx, vtx2xyz, &op)?;
+        Ok(Some(dw_vtx2xyz))
     }
 }
 
@@ -312,8 +361,9 @@ mod tests {
                 &transform_ndc2world,
             )?;
             let loss_cpu = pix2depth_cpu.mul(&conj)?.sum_all()?;
-            dbg!(loss_cpu.to_vec0::<f32>()?);
             let grad_vtx2xyz_cpu = loss_cpu.backward()?.get(&vtx2xyz).unwrap().to_owned();
+            let loss_cpu = loss_cpu.to_vec0::<f32>()?;
+            let grad_vtx2xyz_cpu = grad_vtx2xyz_cpu.flatten_all()?.to_vec1::<f32>()?;
             let pix2depth_cpu = pix2depth_cpu.flatten_all()?.to_vec1::<f32>()?;
             //
             let device = Device::new_cuda(0)?;
@@ -321,14 +371,28 @@ mod tests {
             let pix2depth_cuda =
                 render(&device, &tri2vtx, &vtx2xyz, img_shape, &transform_ndc2world)?;
             let loss_cuda = pix2depth_cuda.mul(&conj_cuda)?.sum_all()?;
-            dbg!(loss_cuda.to_vec0::<f32>()?);
-            // let grad_vtx2xyz_cuda = loss_cuda.backward()?.get(&vtx2xyz).unwrap().to_owned();
+            let grad_vtx2xyz_cuda = loss_cuda.backward()?.get(&vtx2xyz).unwrap().to_owned();
+            let loss_cuda = loss_cuda.to_vec0::<f32>()?;
+            let grad_vtx2xyz_cuda = grad_vtx2xyz_cuda.flatten_all()?.to_vec1::<f32>()?;
             let pix2depth_cuda = pix2depth_cuda.flatten_all()?.to_vec1::<f32>()?;
+            assert!(
+                (loss_cpu - loss_cuda).abs() < 2.0e-2,
+                "{} {} {}",
+                loss_cuda,
+                loss_cpu,
+                loss_cuda - loss_cpu
+            );
             pix2depth_cpu
                 .iter()
                 .zip(pix2depth_cuda.iter())
                 .for_each(|(a, b)| {
                     assert!((a - b).abs() < 1.0e-6);
+                });
+            grad_vtx2xyz_cpu
+                .iter()
+                .zip(grad_vtx2xyz_cuda.iter())
+                .for_each(|(a, b)| {
+                    assert!((a - b).abs() < 1.0e-3, "{} {} {}", a, b, (a - b).abs());
                 });
         }
 
