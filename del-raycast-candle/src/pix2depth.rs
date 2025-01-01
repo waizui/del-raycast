@@ -1,7 +1,8 @@
+use candle_core::{CpuStorage, Device, Layout, Shape, Tensor};
+use std::ops::Deref;
+
 #[cfg(feature = "cuda")]
 use candle_core::CudaStorage;
-use candle_core::{CpuStorage, Device, Layout, Shape, Storage, Tensor};
-use std::ops::Deref;
 
 pub fn hoge(
     tri2vtx: &[u32],
@@ -252,9 +253,9 @@ mod tests {
             vtx2xyz_new
         };
         let num_tri = tri2vtx.len() / 3;
-        let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &candle_core::Device::Cpu)?;
+        let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &Device::Cpu)?;
         let num_vtx = vtx2xyz.len() / 3;
-        let vtx2xyz = candle_core::Var::from_vec(vtx2xyz, (num_vtx, 3), &candle_core::Device::Cpu)?;
+        let vtx2xyz = candle_core::Var::from_vec(vtx2xyz, (num_vtx, 3), &Device::Cpu)?;
         let img_shape = (200, 200);
         //
         let transform_ndc2world = del_geo_core::mat4_col_major::from_identity::<f32>();

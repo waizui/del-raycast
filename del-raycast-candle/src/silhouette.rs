@@ -8,25 +8,10 @@ pub fn anti_aliased_silhouette_update_image(
     transform_world2pix: &[f32; 16],
     pix2tri: &Tensor,
 ) -> anyhow::Result<Tensor> {
-    let edge2vtx_contour = edge2vtx_contour.storage_and_layout().0;
-    let edge2vtx_contour = match edge2vtx_contour.deref() {
-        candle_core::Storage::Cpu(cpu_edge2vtx_contour) => cpu_edge2vtx_contour.as_slice::<u32>(),
-        _ => panic!(),
-    }?;
-    //
-    let vtx2xyz = vtx2xyz.storage_and_layout().0;
-    let vtx2xyz = match vtx2xyz.deref() {
-        candle_core::Storage::Cpu(cpu_vtx2xyz) => cpu_vtx2xyz.as_slice::<f32>(),
-        _ => panic!(),
-    }?;
-    //
     let img_shape = pix2tri.dims2()?;
-    let pix2tri = pix2tri.storage_and_layout().0;
-    let pix2tri = match pix2tri.deref() {
-        candle_core::Storage::Cpu(cpu_pix2tri) => cpu_pix2tri.as_slice::<u32>(),
-        _ => panic!(),
-    }?;
-    //
+    get_cpu_slice_from_tensor!(edge2vtx_contour, _s_edge2vtx_contour, edge2vtx_contour, u32);
+    get_cpu_slice_from_tensor!(pix2tri, _s_pix2tri, pix2tri, u32);
+    get_cpu_slice_from_tensor!(vtx2xyz, _s_vtx2xyz, vtx2xyz, f32);
     let mut img = vec![0f32; img_shape.0 * img_shape.1];
     del_raycast_core::anti_aliased_silhouette::update_image(
         edge2vtx_contour,
@@ -46,9 +31,9 @@ fn test_cpu() -> anyhow::Result<()> {
         let (tri2vtx, vtx2xyz) =
             del_msh_core::trimesh3_primitive::sphere_yup::<u32, f32>(0.8, 64, 64);
         let num_tri = tri2vtx.len() / 3;
-        let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &candle_core::Device::Cpu)?;
+        let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &Device::Cpu)?;
         let num_vtx = vtx2xyz.len() / 3;
-        let vtx2xyz = Var::from_vec(vtx2xyz, (num_vtx, 3), &candle_core::Device::Cpu)?;
+        let vtx2xyz = Var::from_vec(vtx2xyz, (num_vtx, 3), &Device::Cpu)?;
         (tri2vtx, vtx2xyz)
     };
     let (bvhnodes, bvhnode2aabb) = {

@@ -1,7 +1,8 @@
-#[allow(unused_imports)]
-use candle_core::{backend::BackendDevice, CudaStorage};
-use candle_core::{CpuStorage, Layout, Storage, Tensor};
+use candle_core::{CpuStorage, Layout, Tensor};
 use std::ops::Deref;
+
+#[cfg(feature = "cuda")]
+use candle_core::{backend::BackendDevice, CudaStorage};
 
 pub struct Pix2Tri {
     pub bvhnodes: Tensor,
@@ -33,29 +34,16 @@ impl candle_core::InplaceOp3 for Pix2Tri {
             CpuStorage::U32(v) => v,
             _ => panic!(),
         };
-        let tri2vtx = match tri2vtx {
-            CpuStorage::U32(v) => v,
-            _ => panic!(),
-        };
-        let vtx2xyz = match vtx2xyz {
-            CpuStorage::F32(v) => v,
-            _ => panic!(),
-        };
-        let bvhnodes = self.bvhnodes.storage_and_layout().0;
-        let bvhnodes = match bvhnodes.deref() {
-            Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<u32>()?,
-            _ => panic!(),
-        };
-        let bvhnode2aabb = self.bvhnode2aabb.storage_and_layout().0;
-        let bvhnode2aabb = match bvhnode2aabb.deref() {
-            Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
-            _ => panic!(),
-        };
-        let storage = self.transform_ndc2world.storage_and_layout().0;
-        let transform_ndc2world = match storage.deref() {
-            Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
-            _ => panic!(),
-        };
+        let tri2vtx = tri2vtx.as_slice()?;
+        let vtx2xyz = vtx2xyz.as_slice()?;
+        get_cpu_slice_from_tensor!(bvhnodes, l_bvhnodes, self.bvhnodes, u32);
+        get_cpu_slice_from_tensor!(bvhnode2aabb, l_bvhnode2aabb, self.bvhnode2aabb, f32);
+        get_cpu_slice_from_tensor!(
+            transform_ndc2world,
+            l_transform_ndc2world,
+            self.transform_ndc2world,
+            f32
+        );
         let transform_ndc2world = arrayref::array_ref!(transform_ndc2world, 0, 16);
         del_raycast_core::raycast_trimesh3::update_pix2tri(
             pix2tri,
@@ -84,46 +72,23 @@ impl candle_core::InplaceOp3 for Pix2Tri {
         assert_eq!(l_vtx2xyz.dim(1)?, 3); // todo: implement 2D
         use candle_core::cuda_backend::WrapErr;
         let img_shape = (l_pix2tri.dim(0)?, l_pix2tri.dim(1)?);
-        //
-        let CudaStorage { slice, device } = pix2tri;
-        let (pix2tri, device_pix2tri) = match slice {
-            CudaStorageSlice::U32(slice) => (slice, device),
-            _ => panic!(),
-        };
-        //
-        let CudaStorage { slice, device } = tri2vtx;
-        let (tri2vtx, device_tri2vtx) = match slice {
-            CudaStorageSlice::U32(slice) => (slice, device),
-            _ => panic!(),
-        };
-        //
-        let CudaStorage { slice, device } = vtx2xyz;
-        let (vtx2xyz, device_vtx2xyz) = match slice {
-            CudaStorageSlice::F32(slice) => (slice, device),
-            _ => panic!(),
-        };
+        get_cuda_slice_from_storage_u32!(pix2tri, device_pix2tri, pix2tri);
+        get_cuda_slice_from_storage_u32!(tri2vtx, device_tri2vtx, tri2vtx);
+        get_cuda_slice_from_storage_f32!(vtx2xyz, device_vtx2xyz, vtx2xyz);
         assert!(device_pix2tri.same_device(device_tri2vtx));
         assert!(device_pix2tri.same_device(device_vtx2xyz));
         //
-        let storage = self.bvhnodes.storage_and_layout().0;
-        let bvhnodes = match storage.deref() {
-            Storage::Cuda(cuda_storage) => cuda_storage.as_cuda_slice::<u32>()?,
-            _ => panic!(),
-        };
-        //
-        let storage = self.bvhnode2aabb.storage_and_layout().0;
-        let bvhnode2aabb = match storage.deref() {
-            Storage::Cuda(cuda_storage) => cuda_storage.as_cuda_slice::<f32>()?,
-            _ => panic!(),
-        };
-        //
-        let storage = self.transform_ndc2world.storage_and_layout().0;
-        let transform_ndc2world = match storage.deref() {
-            Storage::Cuda(cuda_storage) => cuda_storage.as_cuda_slice::<f32>()?,
-            _ => panic!(),
-        };
+        get_cuda_slice_from_tensor!(bvhnodes, _storage, _layout, self.bvhnodes, u32);
+        get_cuda_slice_from_tensor!(bvhnode2aabb, _storage, _layout, self.bvhnode2aabb, f32);
+        get_cuda_slice_from_tensor!(
+            transform_ndc2world,
+            _storage,
+            _layout,
+            self.transform_ndc2world,
+            f32
+        );
         del_raycast_cudarc::pix2tri::pix2tri(
-            device,
+            device_pix2tri,
             img_shape,
             pix2tri,
             tri2vtx,
