@@ -5,7 +5,7 @@ pub fn raycast2(
     tri2vtx: &Tensor,
     vtx2xy: &Tensor,
     bvhnodes: &Tensor,
-    aabbs: &Tensor,
+    bvhnode2aabb: &Tensor,
     img_shape: &(usize, usize),  // (width, height)
     transform_xy2pix: &[f32; 9], // transform column major
 ) -> candle_core::Result<Tensor> {
@@ -21,7 +21,7 @@ pub fn raycast2(
         candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
         _ => panic!(),
     };
-    let aabbs = aabbs.storage_and_layout().0;
+    let aabbs = bvhnode2aabb.storage_and_layout().0;
     let aabbs = match aabbs.deref() {
         candle_core::Storage::Cpu(cpu_storage) => cpu_storage.as_slice::<f32>()?,
         _ => panic!(),

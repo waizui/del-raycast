@@ -168,10 +168,10 @@ fn test_optimize_vtxcolor() -> anyhow::Result<()> {
         let img_trg = img_trg.grayscale().into_bytes();
         let img_trg: Vec<f32> = img_trg.iter().map(|&v| (v as f32) / 255.0f32).collect();
         assert_eq!(img_trg.len(), width * height);
-        candle_core::Tensor::from_vec(
+        Tensor::from_vec(
             img_trg,
             candle_core::Shape::from((height, width, 1)),
-            &candle_core::Device::Cpu,
+            &Device::Cpu,
         )
         .unwrap()
     };
@@ -190,17 +190,17 @@ fn test_optimize_vtxcolor() -> anyhow::Result<()> {
     // ------------------
     // below: candle
     let num_vtx = vtx2xyz.len() / 2;
-    let vtx2xy = candle_core::Tensor::from_vec(
+    let vtx2xy = Tensor::from_vec(
         vtx2xyz,
         candle_core::Shape::from((num_vtx, 2)),
-        &candle_core::Device::Cpu,
+        &Device::Cpu,
     )
     .unwrap();
     let num_tri = tri2vtx.len() / 3;
-    let tri2vtx = candle_core::Tensor::from_vec(
+    let tri2vtx = Tensor::from_vec(
         tri2vtx,
         candle_core::Shape::from((num_tri, 3)),
-        &candle_core::Device::Cpu,
+        &Device::Cpu,
     )
     .unwrap();
     let pix2tri = {

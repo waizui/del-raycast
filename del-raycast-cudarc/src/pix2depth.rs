@@ -29,11 +29,13 @@ pub fn fwd(
         transform_ndc2world,
         &transform_world2ndc,
     );
-    //unsafe { self.pix_to_tri.clone().launch(cfg,param) }.unwrap();
-    let cuda_fn_pix2depth =
-        del_cudarc::get_or_load_func(device, "fwd", del_raycast_cudarc_kernel::PIX2DEPTH)?;
+    let func = del_cudarc::get_or_load_func(
+        device,
+        "fwd_pix2depth",
+        del_raycast_cudarc_kernel::PIX2DEPTH,
+    )?;
     use cudarc::driver::LaunchAsync;
-    unsafe { cuda_fn_pix2depth.launch(cfg, param) }?;
+    unsafe { func.launch(cfg, param) }?;
     Ok(())
 }
 

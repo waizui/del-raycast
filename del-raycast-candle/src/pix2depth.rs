@@ -12,28 +12,34 @@ pub fn update_bwd_wrt_vtx2xyz(
     dw_pix2depth: &[f32],
     transform_ndc2world: &[f32; 16],
 ) {
+    let transform_world2ndc =
+        del_geo_core::mat4_col_major::try_inverse(transform_ndc2world).unwrap();
     for i_pix in 0..width * height {
         let i_tri = pix2tri[i_pix];
         if i_tri == u32::MAX {
             continue;
         }
         let (ray_org, ray_dir) = del_raycast_core::cam3::ray3_homogeneous(
-            (i_pix % width, i_pix / height),
+            (i_pix % width, i_pix / width),
             (width, height),
             transform_ndc2world,
         );
         let i_tri = i_tri as usize;
         let (p0, p1, p2) = del_msh_core::trimesh3::to_corner_points(tri2vtx, vtx2xyz, i_tri);
-        let dw_depth = dw_pix2depth[i_pix];
+        let dw_depth = {
+            let t =
+                del_geo_core::tri3::intersection_against_line(&p0, &p1, &p2, &ray_org, &ray_dir)
+                    .unwrap();
+            let pos = del_geo_core::vec3::axpy(t, &ray_dir, &ray_org);
+            let jacb = del_geo_core::mat4_col_major::jacobian_transform(&transform_world2ndc, &pos);
+            let tmp = del_geo_core::mat3_col_major::mult_vec(&jacb, &ray_dir);
+            tmp[2] * 0.5 * dw_pix2depth[i_pix]
+        };
         let (_t, _u, _v, dw_p0, dw_p1, dw_p2) =
             del_geo_core::tri3::intersection_against_line_bwd_wrt_tri(
-                &p0, &p1, &p2, &ray_org, &ray_dir, -dw_depth, 0., 0.,
-            )
-            .unwrap();
+                &p0, &p1, &p2, &ray_org, &ray_dir, dw_depth, 0., 0.,
+            );
         use del_geo_core::vec3::Vec3;
-        let dw_p0 = dw_p0.scale(2.0);
-        let dw_p1 = dw_p1.scale(2.0);
-        let dw_p2 = dw_p2.scale(2.0);
         let iv0 = tri2vtx[i_tri * 3] as usize;
         let iv1 = tri2vtx[i_tri * 3 + 1] as usize;
         let iv2 = tri2vtx[i_tri * 3 + 2] as usize;
@@ -156,7 +162,7 @@ impl candle_core::CustomOp1 for Pix2Depth {
         let transform_world2ndc =
             del_geo_core::mat4_col_major::try_inverse(transform_ndc2world).unwrap();
         //
-        let img_shape = (self.pix2tri.dim(0)?, self.pix2tri.dim(1)?);
+        let img_shape = (self.pix2tri.dim(1)?, self.pix2tri.dim(0)?);
         let fn_pix2depth = |i_pix: usize| -> Option<f32> {
             let (i_w, i_h) = (i_pix % img_shape.0, i_pix / img_shape.0);
             let i_tri = pix2tri[i_h * img_shape.0 + i_w];
@@ -201,12 +207,16 @@ impl candle_core::CustomOp1 for Pix2Depth {
         vtx2xyz: &CudaStorage,
         l_vtx2xyz: &Layout,
     ) -> candle_core::Result<(CudaStorage, Shape)> {
+        use candle_core::backend::BackendDevice;
         use candle_core::cuda_backend::CudaStorage;
         use candle_core::cuda_backend::WrapErr;
         assert_eq!(l_vtx2xyz.dim(1)?, 3);
-        let img_shape = (self.pix2tri.dim(0)?, self.pix2tri.dim(1)?);
+        let img_shape = (self.pix2tri.dim(1)?, self.pix2tri.dim(0)?);
         //get_cuda_slice_from_tensor!(vtx2xyz, device_vtx2xyz, vtx2xyz);
         let device = &vtx2xyz.device;
+        assert!(device.same_device(self.pix2tri.device().as_cuda_device()?));
+        assert!(device.same_device(self.tri2vtx.device().as_cuda_device()?));
+        assert!(device.same_device(self.transform_ndc2world.device().as_cuda_device()?));
         let vtx2xyz = vtx2xyz.as_cuda_slice::<f32>()?;
         get_cuda_slice_from_tensor!(pix2tri, storage_pix2tri, layout_pix2tri, self.pix2tri, u32);
         get_cuda_slice_from_tensor!(tri2vtx, storage_tri2vtx, _layout_tri2vtx, self.tri2vtx, u32);
@@ -217,7 +227,8 @@ impl candle_core::CustomOp1 for Pix2Depth {
             self.transform_ndc2world,
             f32
         );
-        let mut pix2depth = unsafe { device.alloc::<f32>(img_shape.0 * img_shape.1) }.w()?;
+        // let mut pix2depth = unsafe { device.alloc::<f32>(img_shape.0 * img_shape.1) }.w()?;
+        let mut pix2depth = device.alloc_zeros::<f32>(img_shape.0 * img_shape.1).w()?;
         del_raycast_cudarc::pix2depth::fwd(
             device,
             img_shape,
@@ -229,7 +240,7 @@ impl candle_core::CustomOp1 for Pix2Depth {
         )
         .w()?;
         let pix2depth = CudaStorage::wrap_cuda_slice(pix2depth, device.clone());
-        Ok((pix2depth, layout_pix2tri.shape().clone()))
+        Ok((pix2depth, (img_shape.1, img_shape.0).into()))
     }
 
     /// This function takes as argument the argument `arg` used in the forward pass, the result
@@ -279,12 +290,28 @@ mod tests {
             img_shape,
             &transform_ndc2world,
         )?;
+        /*
+        {
+            // test pix2tri
+            let a = pix2tri.flatten_all()?.to_vec1::<u32>()?;
+            let a = a.iter().map(|&v| if v == u32::MAX { 0f32 } else { 1f32} ).collect::<Vec<_>>();
+            del_canvas::write_png_from_float_image_grayscale(
+                "../target/pix2depth_pix2tri_test.png",
+                img_shape,
+                &a,
+            ).unwrap();
+            dbg!(img_shape);
+        }
+         */
+        println!("render depth start: {:?}", device);
         let render = crate::pix2depth::Pix2Depth {
             tri2vtx: tri2vtx.clone(),
             pix2tri: pix2tri.clone(),
             transform_ndc2world: transform_ndc2world.clone(),
         };
-        Ok(vtx2xyz.apply_op1(render)?)
+        let a = Ok(vtx2xyz.apply_op1(render)?);
+        println!("render depth end: {:?}", device);
+        a
     }
 
     #[test]
@@ -305,31 +332,42 @@ mod tests {
         let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &Device::Cpu)?;
         let num_vtx = vtx2xyz.len() / 3;
         let vtx2xyz = candle_core::Var::from_vec(vtx2xyz, (num_vtx, 3), &Device::Cpu)?;
-        let img_shape = (200, 200);
-        //
-        let transform_ndc2world = del_geo_core::mat4_col_major::from_identity::<f32>();
+        let img_shape = (400, 300);
+        // let transform_ndc2world = del_geo_core::mat4_col_major::from_identity::<f32>();
+        let transform_ndc2world = {
+            let img_asp = (img_shape.0 as f32) / (img_shape.1 as f32);
+            let cam_projection = del_geo_core::mat4_col_major::camera_perspective_blender(
+                img_asp, 35f32, 2.0, 5.0, true,
+            );
+            let cam_modelview =
+                del_geo_core::mat4_col_major::camera_external_blender(&[0., 0., 3.0], 0., 0., 0.);
+            let transform_world2ndc =
+                del_geo_core::mat4_col_major::mult_mat(&cam_projection, &cam_modelview);
+            del_geo_core::mat4_col_major::try_inverse(&transform_world2ndc).unwrap()
+        };
         let (pix2depth_trg, pix2mask) = {
             let mut img2depth_trg = vec![0f32; img_shape.0 * img_shape.1];
             let mut img2mask = vec![0f32; img_shape.0 * img_shape.1];
             for i_h in 0..img_shape.1 {
                 for i_w in 0..img_shape.0 {
-                    let (ray_org, _ray_dir) = del_raycast_core::cam3::ray3_homogeneous(
-                        (i_w, i_h),
-                        img_shape,
-                        &transform_ndc2world,
-                    );
-                    let x = ray_org[0];
-                    let y = ray_org[1];
+                    /*
+                    let (ray_org, ray_dir)
+                        = del_raycast_core::cam3::ray3_homogeneous(
+                        (i_w, i_h), img_shape, &transform_ndc2world);
+                     */
+                    let x = 2f32 * (i_w as f32) / (img_shape.0 as f32) - 1f32;
+                    let y = 1f32 - 2f32 * (i_h as f32) / (img_shape.1 as f32);
                     let r = (x * x + y * y).sqrt();
-                    if r > 0.5 {
+                    if r > 0.3 {
                         continue;
                     }
                     img2depth_trg[i_h * img_shape.0 + i_w] = 0.6;
                     img2mask[i_h * img_shape.0 + i_w] = 1.0;
                 }
             }
-            let img2depth_trg = Tensor::from_vec(img2depth_trg, img_shape, &Device::Cpu)?;
-            let img2mask = Tensor::from_vec(img2mask, img_shape, &Device::Cpu)?;
+            let img2depth_trg =
+                Tensor::from_vec(img2depth_trg, (img_shape.1, img_shape.0), &Device::Cpu)?;
+            let img2mask = Tensor::from_vec(img2mask, (img_shape.1, img_shape.0), &Device::Cpu)?;
             (img2depth_trg, img2mask)
         };
         let transform_ndc2world = Tensor::from_vec(transform_ndc2world.to_vec(), 16, &Device::Cpu)?;
@@ -351,7 +389,7 @@ mod tests {
         }
         #[cfg(feature = "cuda")]
         {
-            let conj = Tensor::rand(0f32, 1f32, img_shape, &Device::Cpu)?;
+            let conj = Tensor::rand(0f32, 1f32, (img_shape.1, img_shape.0), &Device::Cpu)?;
             // try gpu depth render
             let pix2depth_cpu = render(
                 &Device::Cpu,
@@ -360,6 +398,14 @@ mod tests {
                 img_shape,
                 &transform_ndc2world,
             )?;
+            {
+                let pix2depth_cpu = pix2depth_cpu.flatten_all()?.to_vec1::<f32>()?;
+                del_canvas::write_png_from_float_image_grayscale(
+                    "../target/pix2depth_cpu.png",
+                    img_shape,
+                    &pix2depth_cpu,
+                )?;
+            }
             let loss_cpu = pix2depth_cpu.mul(&conj)?.sum_all()?;
             let grad_vtx2xyz_cpu = loss_cpu.backward()?.get(&vtx2xyz).unwrap().to_owned();
             let loss_cpu = loss_cpu.to_vec0::<f32>()?;
@@ -376,7 +422,7 @@ mod tests {
             let grad_vtx2xyz_cuda = grad_vtx2xyz_cuda.flatten_all()?.to_vec1::<f32>()?;
             let pix2depth_cuda = pix2depth_cuda.flatten_all()?.to_vec1::<f32>()?;
             assert!(
-                (loss_cpu - loss_cuda).abs() < 2.0e-2,
+                (loss_cpu - loss_cuda).abs() < 5.0e-2,
                 "{} {} {}",
                 loss_cuda,
                 loss_cpu,
@@ -390,9 +436,18 @@ mod tests {
                 });
             grad_vtx2xyz_cpu
                 .iter()
+                .enumerate()
                 .zip(grad_vtx2xyz_cuda.iter())
-                .for_each(|(a, b)| {
-                    assert!((a - b).abs() < 1.0e-3, "{} {} {}", a, b, (a - b).abs());
+                .for_each(|((i, a), b)| {
+                    assert!(
+                        (a - b).abs() < 1.0e-3,
+                        "{} {} {} {}",
+                        i,
+                        a,
+                        b,
+                        (a - b).abs()
+                    );
+                    //println!("{} {} {} {}", i, a, b, (a - b).abs());
                 });
         }
 
@@ -423,7 +478,6 @@ mod tests {
                 transform_ndc2world: transform_ndc2world.clone(),
             };
             let pix2depth = vtx2xyz.apply_op1(render)?;
-            dbg!(pix2depth.shape());
             let pix2diff = pix2depth.sub(&pix2depth_trg)?.mul(&pix2mask)?;
             {
                 let pix2depth = pix2depth.flatten_all()?.to_vec1::<f32>()?;

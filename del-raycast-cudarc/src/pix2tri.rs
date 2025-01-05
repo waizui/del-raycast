@@ -1,7 +1,7 @@
 use cudarc::driver::{CudaDevice, CudaSlice, DeviceSlice};
 
 #[allow(clippy::too_many_arguments)]
-pub fn pix2tri(
+pub fn fwd(
     dev: &std::sync::Arc<CudaDevice>,
     img_shape: (usize, usize),
     pix2tri: &mut CudaSlice<u32>,
@@ -11,7 +11,17 @@ pub fn pix2tri(
     bvhnode2aabb: &CudaSlice<f32>,
     transform_ndc2world: &CudaSlice<f32>,
 ) -> std::result::Result<(), cudarc::driver::DriverError> {
-    let cfg = cudarc::driver::LaunchConfig::for_num_elems((img_shape.0 * img_shape.1) as u32);
+    // let cfg = cudarc::driver::LaunchConfig::for_num_elems((img_shape.0 * img_shape.1) as u32);
+    let cfg = {
+        let n = (img_shape.0 * img_shape.1) as u32;
+        const NUM_THREADS: u32 = 32;
+        let num_blocks = (n + NUM_THREADS - 1) / NUM_THREADS;
+        cudarc::driver::LaunchConfig {
+            grid_dim: (num_blocks, 1, 1),
+            block_dim: (NUM_THREADS, 1, 1),
+            shared_mem_bytes: 0,
+        }
+    };
     let num_tri = tri2vtx.len() / 3;
     let param = (
         pix2tri,
@@ -25,9 +35,9 @@ pub fn pix2tri(
         bvhnode2aabb,
     );
     //unsafe { self.pix_to_tri.clone().launch(cfg,param) }.unwrap();
-    let pix_to_tri =
-        del_cudarc::get_or_load_func(dev, "pix_to_tri", del_raycast_cudarc_kernel::PIX2TRI)?;
+    let func =
+        del_cudarc::get_or_load_func(dev, "fwd_pix2tri", del_raycast_cudarc_kernel::PIX2TRI)?;
     use cudarc::driver::LaunchAsync;
-    unsafe { pix_to_tri.launch(cfg, param) }?;
+    unsafe { func.launch(cfg, param) }?;
     Ok(())
 }
