@@ -1,28 +1,52 @@
+use candle_core::{CpuStorage, Layout, Shape};
 #[allow(unused_imports)]
 use candle_core::{DType, Device, Tensor, Var};
 use std::ops::Deref;
 
-pub fn anti_aliased_silhouette_update_image(
-    edge2vtx_contour: &Tensor,
-    vtx2xyz: &Tensor,
-    transform_world2pix: &[f32; 16],
-    pix2tri: &Tensor,
-) -> anyhow::Result<Tensor> {
-    let img_shape = pix2tri.dims2()?;
-    get_cpu_slice_from_tensor!(edge2vtx_contour, _s_edge2vtx_contour, edge2vtx_contour, u32);
-    get_cpu_slice_from_tensor!(pix2tri, _s_pix2tri, pix2tri, u32);
-    get_cpu_slice_from_tensor!(vtx2xyz, _s_vtx2xyz, vtx2xyz, f32);
-    let mut img = vec![0f32; img_shape.0 * img_shape.1];
-    del_raycast_core::anti_aliased_silhouette::update_image(
-        edge2vtx_contour,
-        vtx2xyz,
-        transform_world2pix,
-        img_shape,
-        &mut img,
-        pix2tri,
-    );
-    let img = Tensor::from_vec(img, img_shape, &candle_core::Device::Cpu)?;
-    Ok(img)
+pub struct AntiAliasSilhouette {
+    pix2tri: Tensor,
+    edge2vtx_contour: Tensor,
+    transform_world2pix: Tensor,
+}
+
+impl candle_core::CustomOp1 for AntiAliasSilhouette {
+    fn name(&self) -> &'static str {
+        "anti_alias_silhouette"
+    }
+
+    fn cpu_fwd(
+        &self,
+        vtx2xyz: &CpuStorage,
+        l_vtx2xyz: &Layout,
+    ) -> candle_core::Result<(CpuStorage, Shape)> {
+        assert_eq!(l_vtx2xyz.dim(1)?, 3);
+        let img_shape = (self.pix2tri.dim(1)?, self.pix2tri.dim(0)?);
+        get_cpu_slice_and_storage_from_tensor!(
+            edge2vtx_contour,
+            _s_edge2vtx_contour,
+            self.edge2vtx_contour,
+            u32
+        );
+        get_cpu_slice_and_storage_from_tensor!(pix2tri, _s_pix2tri, self.pix2tri, u32);
+        get_cpu_slice_and_storage_from_tensor!(
+            transform_world2pix,
+            _s_transform_world2pix,
+            self.transform_world2pix,
+            f32
+        );
+        let transform_world2pix = arrayref::array_ref![transform_world2pix, 0, 16];
+        let vtx2xyz = vtx2xyz.as_slice()?;
+        let mut img = vec![0f32; img_shape.0 * img_shape.1];
+        del_raycast_core::anti_aliased_silhouette::update_image(
+            edge2vtx_contour,
+            vtx2xyz,
+            transform_world2pix,
+            img_shape,
+            &mut img,
+            pix2tri,
+        );
+        Ok((CpuStorage::F32(img), (img_shape.1, img_shape.0).into()))
+    }
 }
 
 #[test]
@@ -45,7 +69,7 @@ fn test_cpu() -> anyhow::Result<()> {
         bvhdata.compute(&tri2vtx, &vtx2xyz)?;
         (bvhdata.bvhnodes, bvhdata.bvhnode2aabb)
     };
-    let img_asp = 1.0;
+    let img_asp = 1.5;
     let img_shape = (((16 * 6) as f32 * img_asp) as usize, 16 * 6);
     let cam_projection =
         del_geo_core::mat4_col_major::camera_perspective_blender(img_asp, 24f32, 0.3, 10.0, true);
@@ -63,6 +87,7 @@ fn test_cpu() -> anyhow::Result<()> {
         del_geo_core::mat4_col_major::mult_mat(&transform_ndc2pix, &transform_world2ndc)
     };
     let transform_ndc2world = Tensor::from_vec(transform_ndc2world.to_vec(), 16, &Device::Cpu)?;
+    let transform_world2pix = Tensor::from_vec(transform_world2pix.to_vec(), 16, &Device::Cpu)?;
     let pix2tri = crate::pix2tri::from_trimesh3(
         &tri2vtx,
         &vtx2xyz,
@@ -73,12 +98,12 @@ fn test_cpu() -> anyhow::Result<()> {
     )?;
     let edge2vtx_contour =
         del_msh_candle::edge2vtx_trimesh3::contour(&tri2vtx, &vtx2xyz, &transform_world2ndc)?;
-    let img = anti_aliased_silhouette_update_image(
-        &edge2vtx_contour,
-        &vtx2xyz,
-        &transform_world2pix,
-        &pix2tri,
-    )?;
+    let layer = AntiAliasSilhouette {
+        edge2vtx_contour: edge2vtx_contour.clone(),
+        pix2tri: pix2tri.clone(),
+        transform_world2pix: transform_world2pix.clone(),
+    };
+    let img = vtx2xyz.apply_op1(layer)?;
     del_canvas::write_png_from_float_image_grayscale(
         "../target/del-raycast-candle__silhouette.png",
         img_shape,

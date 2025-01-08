@@ -36,9 +36,14 @@ impl candle_core::InplaceOp3 for Pix2Tri {
         };
         let tri2vtx = tri2vtx.as_slice()?;
         let vtx2xyz = vtx2xyz.as_slice()?;
-        get_cpu_slice_from_tensor!(bvhnodes, l_bvhnodes, self.bvhnodes, u32);
-        get_cpu_slice_from_tensor!(bvhnode2aabb, l_bvhnode2aabb, self.bvhnode2aabb, f32);
-        get_cpu_slice_from_tensor!(
+        get_cpu_slice_and_storage_from_tensor!(bvhnodes, l_bvhnodes, self.bvhnodes, u32);
+        get_cpu_slice_and_storage_from_tensor!(
+            bvhnode2aabb,
+            l_bvhnode2aabb,
+            self.bvhnode2aabb,
+            f32
+        );
+        get_cpu_slice_and_storage_from_tensor!(
             transform_ndc2world,
             l_transform_ndc2world,
             self.transform_ndc2world,
@@ -72,15 +77,27 @@ impl candle_core::InplaceOp3 for Pix2Tri {
         assert_eq!(l_vtx2xyz.dim(1)?, 3); // todo: implement 2D
         use candle_core::cuda_backend::WrapErr;
         let img_shape = (l_pix2tri.dim(1)?, l_pix2tri.dim(0)?);
-        get_cuda_slice_from_storage_u32!(pix2tri, device_pix2tri, pix2tri);
-        get_cuda_slice_from_storage_u32!(tri2vtx, device_tri2vtx, tri2vtx);
-        get_cuda_slice_from_storage_f32!(vtx2xyz, device_vtx2xyz, vtx2xyz);
+        get_cuda_slice_and_device_from_storage_u32!(pix2tri, device_pix2tri, pix2tri);
+        get_cuda_slice_and_device_from_storage_u32!(tri2vtx, device_tri2vtx, tri2vtx);
+        get_cuda_slice_and_device_from_storage_f32!(vtx2xyz, device_vtx2xyz, vtx2xyz);
         assert!(device_pix2tri.same_device(device_tri2vtx));
         assert!(device_pix2tri.same_device(device_vtx2xyz));
         //
-        get_cuda_slice_from_tensor!(bvhnodes, _storage, _layout, self.bvhnodes, u32);
-        get_cuda_slice_from_tensor!(bvhnode2aabb, _storage, _layout, self.bvhnode2aabb, f32);
-        get_cuda_slice_from_tensor!(
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            bvhnodes,
+            _storage,
+            _layout,
+            self.bvhnodes,
+            u32
+        );
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            bvhnode2aabb,
+            _storage,
+            _layout,
+            self.bvhnode2aabb,
+            f32
+        );
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
             transform_ndc2world,
             _storage,
             _layout,

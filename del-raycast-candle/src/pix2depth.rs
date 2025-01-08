@@ -73,9 +73,14 @@ impl candle_core::InplaceOp3 for BackwardPix2Depth {
             CpuStorage::F32(cpu_storage) => cpu_storage,
             _ => panic!(),
         };
-        get_cpu_slice_from_tensor!(pix2tri, storage, self.pix2tri, u32);
-        get_cpu_slice_from_tensor!(dw_pix2depth, storage, self.dw_pix2depth, f32);
-        get_cpu_slice_from_tensor!(transform_ndc2world, storage, self.transform_ndc2world, f32);
+        get_cpu_slice_and_storage_from_tensor!(pix2tri, storage, self.pix2tri, u32);
+        get_cpu_slice_and_storage_from_tensor!(dw_pix2depth, storage, self.dw_pix2depth, f32);
+        get_cpu_slice_and_storage_from_tensor!(
+            transform_ndc2world,
+            storage,
+            self.transform_ndc2world,
+            f32
+        );
         let transform_ndc2world = arrayref::array_ref![transform_ndc2world, 0, 16];
         update_bwd_wrt_vtx2xyz(
             dw_vtx2xyz.as_mut_slice(),
@@ -105,18 +110,30 @@ impl candle_core::InplaceOp3 for BackwardPix2Depth {
         assert_eq!(l_dw_vtx2xyz.shape().dims2()?, l_vtx2xyz.shape().dims2()?);
         assert_eq!(l_tri2vtx.shape().dims2()?.1, 3);
         let img_shape = (self.pix2tri.dim(1)?, self.pix2tri.dim(0)?);
-        get_cuda_slice_from_tensor!(pix2tri, storage, _layout, self.pix2tri, u32);
-        get_cuda_slice_from_tensor!(dw_pix2depth, storage, _layout, self.dw_pix2depth, f32);
-        get_cuda_slice_from_tensor!(
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            pix2tri,
+            storage,
+            _layout,
+            self.pix2tri,
+            u32
+        );
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            dw_pix2depth,
+            storage,
+            _layout,
+            self.dw_pix2depth,
+            f32
+        );
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
             transform_ndc2world,
             storage,
             _layout,
             self.transform_ndc2world,
             f32
         );
-        get_cuda_slice_from_storage_f32!(dw_vtx2xyz, device_dw_vtx2xyz, dw_vtx2xyz);
-        get_cuda_slice_from_storage_u32!(tri2vtx, device_tri2vtx, tri2vtx);
-        get_cuda_slice_from_storage_f32!(vtx2xyz, device_vtx2xyz, vtx2xyz);
+        get_cuda_slice_and_device_from_storage_f32!(dw_vtx2xyz, device_dw_vtx2xyz, dw_vtx2xyz);
+        get_cuda_slice_and_device_from_storage_u32!(tri2vtx, device_tri2vtx, tri2vtx);
+        get_cuda_slice_and_device_from_storage_f32!(vtx2xyz, device_vtx2xyz, vtx2xyz);
         assert!(device_dw_vtx2xyz.same_device(device_tri2vtx));
         assert!(device_dw_vtx2xyz.same_device(device_vtx2xyz));
         del_raycast_cudarc::pix2depth::bwd_wrt_vtx2xyz(
@@ -155,9 +172,14 @@ impl candle_core::CustomOp1 for Pix2Depth {
         let (_num_vtx, three) = l_vtx2xyz.shape().dims2()?;
         assert_eq!(three, 3);
         let vtx2xyz = vtx2xyz.as_slice::<f32>()?;
-        get_cpu_slice_from_tensor!(tri2vtx, storage, self.tri2vtx, u32);
-        get_cpu_slice_from_tensor!(pix2tri, storage, self.pix2tri, u32);
-        get_cpu_slice_from_tensor!(transform_ndc2world, storage, self.transform_ndc2world, f32);
+        get_cpu_slice_and_storage_from_tensor!(tri2vtx, storage, self.tri2vtx, u32);
+        get_cpu_slice_and_storage_from_tensor!(pix2tri, storage, self.pix2tri, u32);
+        get_cpu_slice_and_storage_from_tensor!(
+            transform_ndc2world,
+            storage,
+            self.transform_ndc2world,
+            f32
+        );
         let transform_ndc2world = arrayref::array_ref![transform_ndc2world, 0, 16];
         let transform_world2ndc =
             del_geo_core::mat4_col_major::try_inverse(transform_ndc2world).unwrap();
@@ -218,9 +240,21 @@ impl candle_core::CustomOp1 for Pix2Depth {
         assert!(device.same_device(self.tri2vtx.device().as_cuda_device()?));
         assert!(device.same_device(self.transform_ndc2world.device().as_cuda_device()?));
         let vtx2xyz = vtx2xyz.as_cuda_slice::<f32>()?;
-        get_cuda_slice_from_tensor!(pix2tri, storage_pix2tri, _layout_pix2tri, self.pix2tri, u32);
-        get_cuda_slice_from_tensor!(tri2vtx, storage_tri2vtx, _layout_tri2vtx, self.tri2vtx, u32);
-        get_cuda_slice_from_tensor!(
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            pix2tri,
+            storage_pix2tri,
+            _layout_pix2tri,
+            self.pix2tri,
+            u32
+        );
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            tri2vtx,
+            storage_tri2vtx,
+            _layout_tri2vtx,
+            self.tri2vtx,
+            u32
+        );
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
             transform_ndc2world,
             storage_transform_ndc2world,
             _layout_transform_ndc2world,

@@ -230,7 +230,7 @@ enum IntegrationType {
     Mis,
 }
 
-fn hoge(
+fn render_and_save_image_and_compute_error(
     integration_type: IntegrationType,
     num_sample: usize,
     max_depth: usize,
@@ -383,7 +383,7 @@ fn main() -> anyhow::Result<()> {
     for i in 1..4 {
         // path tracing sampling material
         let num_sample = 8 * i;
-        hoge(
+        render_and_save_image_and_compute_error(
             IntegrationType::PathTracing,
             num_sample,
             65,
@@ -396,7 +396,7 @@ fn main() -> anyhow::Result<()> {
     println!("---------------------MIS sampling---------------------");
     for i in 1..4 {
         let num_sample = 8 * i;
-        hoge(
+        render_and_save_image_and_compute_error(
             IntegrationType::Mis,
             num_sample,
             65,
@@ -409,7 +409,7 @@ fn main() -> anyhow::Result<()> {
     println!("---------------------NEE tracer---------------------");
     for i in 1..4 {
         let num_sample = 8 * i;
-        hoge(
+        render_and_save_image_and_compute_error(
             IntegrationType::NextEventEstimation,
             num_sample,
             65,
@@ -422,7 +422,7 @@ fn main() -> anyhow::Result<()> {
     println!("---------------------light sampling---------------------");
     for i in 1..4 {
         let num_sample = 8 * i;
-        hoge(
+        render_and_save_image_and_compute_error(
             IntegrationType::NextEventEstimation,
             num_sample,
             1,
@@ -435,7 +435,7 @@ fn main() -> anyhow::Result<()> {
     println!("---------------------material sampling---------------------");
     for i in 1..4 {
         let num_sample = 8 * i;
-        hoge(
+        render_and_save_image_and_compute_error(
             IntegrationType::PathTracing,
             num_sample,
             2,
