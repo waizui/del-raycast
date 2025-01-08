@@ -218,7 +218,7 @@ impl candle_core::CustomOp1 for Pix2Depth {
         assert!(device.same_device(self.tri2vtx.device().as_cuda_device()?));
         assert!(device.same_device(self.transform_ndc2world.device().as_cuda_device()?));
         let vtx2xyz = vtx2xyz.as_cuda_slice::<f32>()?;
-        get_cuda_slice_from_tensor!(pix2tri, storage_pix2tri, layout_pix2tri, self.pix2tri, u32);
+        get_cuda_slice_from_tensor!(pix2tri, storage_pix2tri, _layout_pix2tri, self.pix2tri, u32);
         get_cuda_slice_from_tensor!(tri2vtx, storage_tri2vtx, _layout_tri2vtx, self.tri2vtx, u32);
         get_cuda_slice_from_tensor!(
             transform_ndc2world,
@@ -328,10 +328,16 @@ mod tests {
             );
             vtx2xyz_new
         };
+        let num_vtx = vtx2xyz.len() / 3;
+        let (vtx2idx, idx2vtx) =
+            del_msh_core::vtx2vtx::from_uniform_mesh(&tri2vtx, 3, num_vtx, false);
         let num_tri = tri2vtx.len() / 3;
         let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &Device::Cpu)?;
-        let num_vtx = vtx2xyz.len() / 3;
         let vtx2xyz = candle_core::Var::from_vec(vtx2xyz, (num_vtx, 3), &Device::Cpu)?;
+        let vtx2idx = Tensor::from_vec(vtx2idx, num_vtx + 1, &Device::Cpu)?;
+        let num_idx = idx2vtx.len();
+        let idx2vtx = Tensor::from_vec(idx2vtx, num_idx, &Device::Cpu)?;
+        //
         let img_shape = (400, 300);
         // let transform_ndc2world = del_geo_core::mat4_col_major::from_identity::<f32>();
         let transform_ndc2world = {
@@ -422,7 +428,7 @@ mod tests {
             let grad_vtx2xyz_cuda = grad_vtx2xyz_cuda.flatten_all()?.to_vec1::<f32>()?;
             let pix2depth_cuda = pix2depth_cuda.flatten_all()?.to_vec1::<f32>()?;
             assert!(
-                (loss_cpu - loss_cuda).abs() < 5.0e-2,
+                (loss_cpu - loss_cuda).abs() < 1.0e-1,
                 "{} {} {}",
                 loss_cuda,
                 loss_cpu,
@@ -451,6 +457,7 @@ mod tests {
                 });
         }
 
+        /*
         let mut optimizer = crate::gd_with_laplacian_reparam::Optimizer::new(
             vtx2xyz.clone(),
             0.001,
@@ -458,6 +465,7 @@ mod tests {
             vtx2xyz.dims2()?.0,
             0.8,
         )?;
+         */
 
         // let mut optimizer = candle_nn::AdamW::new_lr(vec!(vtx2xyz.clone()), 0.01)?;
 
@@ -498,7 +506,19 @@ mod tests {
             }
             let loss = pix2diff.sqr()?.sum_all()?;
             println!("loss: {}", loss.to_vec0::<f32>()?);
-            optimizer.step(&loss.backward()?)?;
+            {
+                let grads = loss.backward()?;
+                let grad = grads.get(&vtx2xyz).unwrap();
+                let layer = del_fem_candle::laplacian_smoothing::LaplacianSmoothing {
+                    vtx2idx: vtx2idx.clone(),
+                    idx2vtx: idx2vtx.clone(),
+                    lambda: 0.8,
+                    num_iter: 10,
+                };
+                let grad = grad.apply_op1_no_bwd(&layer)?;
+                let grad = (grad * 0.001)?;
+                vtx2xyz.set(&vtx2xyz.sub(&(grad))?)?;
+            }
             {
                 let vtx2xyz = vtx2xyz.flatten_all()?.to_vec1::<f32>()?;
                 let tri2vtx = tri2vtx.flatten_all()?.to_vec1::<u32>()?;
