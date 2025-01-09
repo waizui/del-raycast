@@ -229,7 +229,7 @@ where
             )?
         }
         Material::CoaDiff(_) => {
-            eprintln!("Not implent sample CoaDiff");
+            eprintln!("Not implement sample CoaDiff");
             return None;
         }
         Material::None => return None,
@@ -281,7 +281,7 @@ pub fn eval_brdf(
             // eval_brdf_diffuse(&b.reflectance)
         }
         Material::CoaDiff(_) => {
-            eprintln!("Not implent eval CoaDiff");
+            eprintln!("Not implement eval CoaDiff");
             [0f32; 3]
         }
 

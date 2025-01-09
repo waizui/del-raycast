@@ -251,6 +251,7 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
                 del_raycast_core::material::Material::Cond(cond) => {
                     cond.uroughness.max(cond.vroughness)
                 }
+                _ => panic!("Not implement material for roughness"),
             }
         };
         Some((
