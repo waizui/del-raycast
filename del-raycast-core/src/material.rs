@@ -228,7 +228,10 @@ where
                 rng,
             )?
         }
-        Material::CoaDiff(mat) => return None,
+        Material::CoaDiff(_) => {
+            eprintln!("Not implent sample CoaDiff");
+            return None;
+        }
         Material::None => return None,
     };
     debug_assert!((vec3::norm(&ray_out_objlcl) - 1f32).abs() < 1.0e-5);
@@ -277,7 +280,11 @@ pub fn eval_brdf(
             )
             // eval_brdf_diffuse(&b.reflectance)
         }
-        Material::CoaDiff(mat) => [0f32; 3],
+        Material::CoaDiff(_) => {
+            eprintln!("Not implent eval CoaDiff");
+            [0f32; 3]
+        }
+
         Material::None => [0f32; 3],
     }
 }
