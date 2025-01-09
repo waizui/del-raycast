@@ -127,34 +127,10 @@ fn main() -> anyhow::Result<()> {
                 transform_cam_lcl2glbl,
             );
 
-            // compute intersection below
-            let mut t_min = f32::INFINITY;
-            for (s_i, trimesh) in shapes.iter().enumerate() {
-                let ti = del_geo_core::mat4_col_major::try_inverse(&trimesh.transform).unwrap();
-                let ray_org =
-                    del_geo_core::mat4_col_major::transform_homogeneous(&ti, &ray_org).unwrap();
-                let ray_dir = del_geo_core::mat4_col_major::transform_direction(&ti, &ray_dir);
-
-                let Some((t, _i_tri)) = del_msh_core::search_bvh3::first_intersection_ray(
-                    &ray_org,
-                    &ray_dir,
-                    &TriMeshWithBvh {
-                        tri2vtx: &trimesh.tri2vtx,
-                        vtx2xyz: &trimesh.vtx2xyz,
-                        bvhnodes: &trimesh.bvhnodes,
-                        bvhnode2aabb: &trimesh.bvhnode2aabb,
-                    },
-                    0,
-                    f32::INFINITY,
-                ) else {
-                    continue;
-                };
-                if t < t_min {
-                    t_min = t;
-                }
-            }
-
-            let v = (t_min - 1.5) * 0.8;
+            let Some((t, _i_shape_entity)) = intersect_bvh(&ray_org, &ray_dir, &shapes) else {
+                return;
+            };
+            let v = (t - 1.5) * 0.8;
             *pix = [v; 3];
         };
 
