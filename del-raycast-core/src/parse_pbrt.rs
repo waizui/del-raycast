@@ -151,6 +151,16 @@ fn get_f32_array3_from_material_param(
     Some(res)
 }
 
+fn get_bool_from_material_param(
+    key: &str,
+    dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
+) -> Option<bool> {
+    let mp = dict_mp.get(key)?;
+    assert_eq!(mp.1, key.to_string());
+    let res: bool = mp.2.parse().ok()?;
+    Some(res)
+}
+
 fn get_f32_from_material_param(
     key: &str,
     dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
@@ -164,15 +174,42 @@ fn get_f32_from_material_param(
     Ok(mp.2.parse::<f32>()?)
 }
 
+fn get_texture_index_from_material_param(
+    key: &str,
+    dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
+    textures: &[pbrt4::types::Texture],
+) -> Option<usize> {
+    let mp = dict_mp.get(key)?;
+    if mp.0 != pbrt4::param::ParamType::Texture {
+        return None;
+    }
+
+    // can be optimized using hash
+    for (i, tex) in textures.iter().enumerate() {
+        let name = &mp.2[1..mp.2.len() - 1];
+        if tex.name == name {
+            return Some(i);
+        }
+    }
+
+    None
+}
+
 pub fn parse_material(scene: &pbrt4::Scene) -> Vec<crate::material::Material> {
     let mut materials = Vec::<crate::material::Material>::with_capacity(scene.materials.len());
     for mat in scene.materials.iter() {
         match mat.attributes.as_str() {
             "diffuse" => {
-                let mat = crate::material::DiffuseMaterial {
+                let diff = crate::material::DiffuseMaterial {
                     reflectance: mat.reflectance.get_rgb(),
+                    reflectance_texture: get_texture_index_from_material_param(
+                        "reflectance",
+                        &mat.params,
+                        &scene.textures,
+                    )
+                    .unwrap_or(usize::MAX),
                 };
-                materials.push(crate::material::Material::Diff(mat));
+                materials.push(crate::material::Material::Diff(diff));
             }
             "conductor" => {
                 let uroughness = get_f32_from_material_param("uroughness", &mat.params).unwrap();
@@ -190,7 +227,26 @@ pub fn parse_material(scene: &pbrt4::Scene) -> Vec<crate::material::Material> {
                 };
                 materials.push(crate::material::Material::Cond(mat))
             }
-            _ => {}
+            "coateddiffuse" => {
+                let uroughness = get_f32_from_material_param("uroughness", &mat.params).unwrap();
+                let vroughness = get_f32_from_material_param("vroughness", &mat.params).unwrap();
+                let reflectance = get_f32_array3_from_material_param("reflectance", &mat.params)
+                    .unwrap_or([1.0, 1.0, 1.0]);
+                let remaproughness =
+                    get_bool_from_material_param("remaproughness", &mat.params).unwrap();
+
+                let coadiff = crate::material::CoatedDiffuse {
+                    uroughness,
+                    vroughness,
+                    reflectance,
+                    remaproughness,
+                };
+                materials.push(crate::material::Material::CoaDiff(coadiff))
+            }
+            _ => {
+                dbg!(&mat.attributes);
+                panic!("Material paser not support");
+            }
         }
     }
     materials
@@ -257,9 +313,11 @@ pub fn parse_shapes(scene: &pbrt4::Scene) -> Vec<ShapeEntity> {
                 crate::shape::ShapeType::Sphere { radius: *radius }
             }
             _ => {
-                panic!()
+                dbg!(&shape_entity.params);
+                panic!("Parse unsupported shape")
             }
         };
+
         let transform_objlcl2world = shape_entity.transform.as_ref().to_owned();
         let transform_world2objlcl =
             del_geo_core::mat4_col_major::try_inverse(&transform_objlcl2world).unwrap();

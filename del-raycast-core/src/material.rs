@@ -3,11 +3,13 @@ pub enum Material {
     None,
     Diff(DiffuseMaterial),
     Cond(ConductorMaterial),
+    CoaDiff(CoatedDiffuse),
 }
 
 #[derive(Debug)]
 pub struct DiffuseMaterial {
     pub reflectance: [f32; 3],
+    pub reflectance_texture: usize, // valid if != usize:MAX
 }
 
 #[derive(Debug)]
@@ -17,6 +19,14 @@ pub struct ConductorMaterial {
     pub reflectance: [f32; 3],
     pub k: [f32; 3],
     pub eta: [f32; 3],
+}
+
+#[derive(Debug)]
+pub struct CoatedDiffuse {
+    pub uroughness: f32,
+    pub vroughness: f32,
+    pub reflectance: [f32; 3],
+    pub remaproughness: bool,
 }
 
 pub fn sample_brdf_diffuse<RNG>(reflectance: &[f32; 3], rng: &mut RNG) -> ([f32; 3], [f32; 3], f32)
@@ -219,6 +229,10 @@ where
                 rng,
             )?
         }
+        Material::CoaDiff(_) => {
+            eprintln!("Not implement sample CoaDiff");
+            return None;
+        }
         Material::None => return None,
     };
     debug_assert!((vec3::norm(&ray_out_objlcl) - 1f32).abs() < 1.0e-5);
@@ -267,6 +281,11 @@ pub fn eval_brdf(
             )
             // eval_brdf_diffuse(&b.reflectance)
         }
+        Material::CoaDiff(_) => {
+            eprintln!("Not implement eval CoaDiff");
+            [0f32; 3]
+        }
+
         Material::None => [0f32; 3],
     }
 }
