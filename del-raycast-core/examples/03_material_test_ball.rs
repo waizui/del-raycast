@@ -72,10 +72,14 @@ fn main() -> anyhow::Result<()> {
     let transform_cam_lcl2glbl =
         del_geo_core::mat4_col_major::try_inverse(&camera.transform_world2camlcl).unwrap();
     let img_shape = (540, 360);
-    let mut img = Vec::<image::Rgb<f32>>::new();
-    img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
-    for ih in 0..img_shape.1 {
-        for iw in 0..img_shape.0 {
+
+    {
+        // computing depth image
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            let pix = arrayref::array_mut_ref![pix, 0, 3];
+            let iw = i_pix % img_shape.0;
+            let ih = i_pix / img_shape.0;
+
             let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray_plus_z(
                 (iw, ih),
                 (0., 0.),
@@ -83,46 +87,46 @@ fn main() -> anyhow::Result<()> {
                 camera.camera_fov,
                 transform_cam_lcl2glbl,
             );
+
             // compute intersection below
             let mut t_min = f32::INFINITY;
-            let mut shape_i: usize = usize::MAX;
             for (s_i, trimesh) in shapes.iter().enumerate() {
                 let ti = del_geo_core::mat4_col_major::try_inverse(&trimesh.transform).unwrap();
                 let ray_org =
                     del_geo_core::mat4_col_major::transform_homogeneous(&ti, &ray_org).unwrap();
                 let ray_dir = del_geo_core::mat4_col_major::transform_direction(&ti, &ray_dir);
-                let Some((t, _i_tri)) =
-                /*790
-                    del_msh_core::trimesh3_search_bruteforce::first_intersection_ray(
-                        &ray_org,
-                        &ray_dir,
-                        &trimesh.tri2vtx,
-                        &trimesh.vtx2xyz,
-                    )
-                 */
-                del_msh_core::search_bvh3::first_intersection_ray(&ray_org, &ray_dir, &TriMeshWithBvh {
-                    tri2vtx: &trimesh.tri2vtx,
-                    vtx2xyz: &trimesh.vtx2xyz,
-                    bvhnodes: &trimesh.bvhnodes,
-                    bvhnode2aabb: &trimesh.bvhnode2aabb,
-                }, 0, f32::INFINITY)
-                else {
+
+                let Some((t, _i_tri)) = del_msh_core::search_bvh3::first_intersection_ray(
+                    &ray_org,
+                    &ray_dir,
+                    &TriMeshWithBvh {
+                        tri2vtx: &trimesh.tri2vtx,
+                        vtx2xyz: &trimesh.vtx2xyz,
+                        bvhnodes: &trimesh.bvhnodes,
+                        bvhnode2aabb: &trimesh.bvhnode2aabb,
+                    },
+                    0,
+                    f32::INFINITY,
+                ) else {
                     continue;
                 };
                 if t < t_min {
-                    shape_i = s_i;
                     t_min = t;
                 }
             }
+
             let v = (t_min - 1.5) * 0.8;
-            img[ih * img_shape.0 + iw] = image::Rgb([v; 3]);
-        }
+            *pix = [v; 3];
+        };
+
+        let mut img_out = vec![0f32; img_shape.0 * img_shape.1 * 3];
+        use rayon::prelude::*;
+        img_out
+            .par_chunks_mut(3)
+            .enumerate()
+            .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
+        del_canvas::write_hdr_file("target/03_material_test_ball.hdr", img_shape, &img_out)?;
     }
-    {
-        use image::codecs::hdr::HdrEncoder;
-        let file = std::fs::File::create("target/03_material_test_ball.hdr").unwrap();
-        let enc = HdrEncoder::new(file);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
-    }
+
     Ok(())
 }
