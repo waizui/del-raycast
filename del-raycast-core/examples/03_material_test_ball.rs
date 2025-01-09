@@ -58,7 +58,7 @@ fn parse() -> anyhow::Result<(
     for shape_entity in scene.shapes.iter() {
         let transform = shape_entity.transform.to_cols_array();
         let (_, _, tri2vtx, vtx2xyz, _) =
-            del_raycast_core::parse_pbrt::trimesh3_from_shape_entity(&shape_entity, path_file)
+            del_raycast_core::parse_pbrt::trimesh3_from_shape_entity(shape_entity, path_file)
                 .unwrap();
         let bvhnodes = del_msh_core::bvhnodes_morton::from_triangle_mesh(&tri2vtx, &vtx2xyz, 3);
         let bvhnode2aabb = del_msh_core::bvhnode2aabb3::from_uniform_mesh_with_bvh(
