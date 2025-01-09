@@ -299,8 +299,7 @@ fn main() -> anyhow::Result<()> {
             }
         };
 
-        let mut img = vec!(0f32; img_shape.0 * img_shape.1 * 3);
-
+        let mut img = vec![0f32; img_shape.0 * img_shape.1 * 3];
         use rayon::iter::IndexedParallelIterator;
         use rayon::iter::ParallelIterator;
         use rayon::prelude::*;
