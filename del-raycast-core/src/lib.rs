@@ -12,3 +12,4 @@ pub mod parse_pbrt;
 pub mod raycast_trimesh3;
 pub mod sampling;
 pub mod shape;
+pub mod textures;
