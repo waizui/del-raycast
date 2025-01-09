@@ -173,7 +173,12 @@ fn main() -> anyhow::Result<()> {
             );
 
             let reflectance = match &materials[i_material] {
-                del_raycast_core::material::Material::Diff(mat) => mat.reflectance,
+                del_raycast_core::material::Material::Diff(mat) => {
+                    if mat.reflectance_texture != usize::MAX {
+                        //TODO: sample and return texture value
+                    }
+                    mat.reflectance
+                }
                 del_raycast_core::material::Material::Cond(mat) => mat.reflectance,
                 del_raycast_core::material::Material::CoaDiff(mat) => mat.reflectance,
                 _ => {

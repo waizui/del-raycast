@@ -9,6 +9,7 @@ pub enum Material {
 #[derive(Debug)]
 pub struct DiffuseMaterial {
     pub reflectance: [f32; 3],
+    pub reflectance_texture: usize, // valid if != usize:MAX
 }
 
 #[derive(Debug)]
