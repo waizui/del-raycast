@@ -118,7 +118,7 @@ fn test_cpu() -> anyhow::Result<()> {
         let bvhdata =
             del_msh_candle::bvhnode2aabb::BvhForTriMesh::from_trimesh(&tri2vtx, &vtx2xyz)?;
         let pix2tri_cpu = pix2tri.flatten_all()?.to_vec1::<u32>()?;
-        let pix2tri = Tensor::zeros(img_shape, DType::U32, &device)?;
+        let pix2tri = Tensor::zeros((img_shape.1, img_shape.0), DType::U32, &device)?;
         let layer = crate::pix2tri::Pix2Tri {
             bvhnodes: bvhdata.bvhnodes,
             bvhnode2aabb: bvhdata.bvhnode2aabb,
@@ -131,6 +131,7 @@ fn test_cpu() -> anyhow::Result<()> {
             .zip(pix2tri_gpu.iter())
             .for_each(|(&a, &b)| {
                 assert_eq!(a, b);
+                // println!("{} {}", a, b);
             })
     }
     Ok(())
