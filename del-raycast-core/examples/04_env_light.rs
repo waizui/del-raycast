@@ -1,3 +1,5 @@
+use arrayref::array_mut_ref;
+
 fn main() -> anyhow::Result<()> {
     let (tex_shape, tex_data) = {
         let pfm = del_raycast_core::io_pfm::PFM::read_from(
@@ -37,14 +39,13 @@ fn main() -> anyhow::Result<()> {
     let sphere_cntr = [0.15, 0.50, 0.16];
     let img_shape = (640, 360);
     {
-        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            let pix = array_mut_ref![pix, 0, 3];
             use rand::Rng;
             use rand::SeedableRng;
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
-            let ih = i_pix / img_shape.0;
-            let iw = i_pix % img_shape.0;
             let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray_plus_z(
-                (iw, ih),
+                (i_pix % img_shape.0, i_pix / img_shape.0),
                 (0., 0.),
                 img_shape,
                 camera_fov,
@@ -67,7 +68,7 @@ fn main() -> anyhow::Result<()> {
                     del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &refl)
                         .unwrap();
                 let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
-                pix.0 = del_canvas::texture::nearest_integer_center::<3>(
+                *pix = del_canvas::texture::nearest_integer_center::<3>(
                     &[
                         tex_coord[0] * tex_shape.0 as f32,
                         tex_coord[1] * tex_shape.1 as f32,
@@ -80,7 +81,7 @@ fn main() -> anyhow::Result<()> {
                 let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
                     .unwrap();
                 let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
-                pix.0 = del_canvas::texture::nearest_integer_center::<3>(
+                *pix = del_canvas::texture::nearest_integer_center::<3>(
                     &[
                         tex_coord[0] * tex_shape.0 as f32,
                         tex_coord[1] * tex_shape.1 as f32,
@@ -93,14 +94,12 @@ fn main() -> anyhow::Result<()> {
         use rayon::iter::IndexedParallelIterator;
         use rayon::iter::IntoParallelRefMutIterator;
         use rayon::iter::ParallelIterator;
-        let mut img = vec![image::Rgb([0_f32; 3]); img_shape.0 * img_shape.1];
-        img.par_iter_mut()
+        use rayon::prelude::ParallelSliceMut;
+        let mut img = vec![0f32; img_shape.0 * img_shape.1 * 3];
+        img.par_chunks_mut(3)
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-        use image::codecs::hdr::HdrEncoder;
-        let file = std::fs::File::create("target/04_env_light.hdr").unwrap();
-        let enc = HdrEncoder::new(file);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+        del_canvas::write_hdr_file("target/04_env_light.hdr", img_shape, &img)?;
     }
 
     {
@@ -191,10 +190,8 @@ fn main() -> anyhow::Result<()> {
 
     {
         // light sampling
-
         use del_raycast_core::env_map::*;
         use image::Pixel;
-
         let samples = 64;
         let img: Vec<image::Rgb<f32>> = tex_data
             .chunks(3)
@@ -235,12 +232,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
         */
 
-        let shoot_ray = |i_pix: usize, pix: &mut image::Rgb<f32>| {
-            let ih = i_pix / img_shape.0;
-            let iw = i_pix % img_shape.0;
-
+        let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            let pix = arrayref::array_mut_ref![pix, 0, 3];
             let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray_plus_z(
-                (iw, ih),
+                (i_pix % img_shape.0, i_pix / img_shape.0),
                 (0., 0.),
                 img_shape,
                 camera_fov,
@@ -287,13 +282,13 @@ fn main() -> anyhow::Result<()> {
                     result = vec3::add(&result, &radiance);
                 }
                 vec3::scale_in_place(&mut result, 4. / samples as f32);
-                pix.0 = result;
+                *pix = result;
             } else {
                 let nrm = del_geo_core::vec3::normalize(&ray_dir);
                 let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
                     .unwrap();
                 let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
-                pix.0 = del_canvas::texture::nearest_integer_center::<3>(
+                *pix = del_canvas::texture::nearest_integer_center::<3>(
                     &[
                         tex_coord[0] * tex_shape.0 as f32,
                         tex_coord[1] * tex_shape.1 as f32,
@@ -304,21 +299,14 @@ fn main() -> anyhow::Result<()> {
             }
         };
 
-        let mut img = Vec::<image::Rgb<f32>>::new();
-        img.resize(img_shape.0 * img_shape.1, image::Rgb([0_f32; 3]));
-
+        let mut img = vec!(0f32; img_shape.0 * img_shape.1 * 3);
         use rayon::iter::IndexedParallelIterator;
-        use rayon::iter::IntoParallelRefMutIterator;
         use rayon::iter::ParallelIterator;
-
-        img.par_iter_mut()
+        use rayon::prelude::*;
+        img.par_chunks_mut(3)
             .enumerate()
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
-
-        let file_ms = std::fs::File::create("target/04_env_light_sampling.hdr").unwrap();
-        use image::codecs::hdr::HdrEncoder;
-        let enc = HdrEncoder::new(file_ms);
-        let _ = enc.encode(&img, img_shape.0, img_shape.1);
+        del_canvas::write_hdr_file("target/04_env_light_sampling.hdr", img_shape, &img)?;
     }
 
     Ok(())
