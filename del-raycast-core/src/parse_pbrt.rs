@@ -257,9 +257,11 @@ pub fn parse_shapes(scene: &pbrt4::Scene) -> Vec<ShapeEntity> {
                 crate::shape::ShapeType::Sphere { radius: *radius }
             }
             _ => {
-                panic!()
+                dbg!(&shape_entity.params);
+                panic!("Parse unsupported shape")
             }
         };
+
         let transform_objlcl2world = shape_entity.transform.as_ref().to_owned();
         let transform_world2objlcl =
             del_geo_core::mat4_col_major::try_inverse(&transform_objlcl2world).unwrap();
