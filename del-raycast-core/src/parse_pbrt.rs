@@ -151,6 +151,16 @@ fn get_f32_array3_from_material_param(
     Some(res)
 }
 
+fn get_bool_from_material_param(
+    key: &str,
+    dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
+) -> Option<bool> {
+    let mp = dict_mp.get(key)?;
+    assert_eq!(mp.1, key.to_string());
+    let res: bool = mp.2.parse().ok()?;
+    Some(res)
+}
+
 fn get_f32_from_material_param(
     key: &str,
     dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
@@ -190,7 +200,26 @@ pub fn parse_material(scene: &pbrt4::Scene) -> Vec<crate::material::Material> {
                 };
                 materials.push(crate::material::Material::Cond(mat))
             }
-            _ => {}
+            "coateddiffuse" => {
+                let uroughness = get_f32_from_material_param("uroughness", &mat.params).unwrap();
+                let vroughness = get_f32_from_material_param("vroughness", &mat.params).unwrap();
+                let reflectance = get_f32_array3_from_material_param("reflectance", &mat.params)
+                    .unwrap_or([1.0, 1.0, 1.0]);
+                let remaproughness =
+                    get_bool_from_material_param("remaproughness", &mat.params).unwrap();
+
+                let coadiff = crate::material::CoatedDiffuse {
+                    uroughness,
+                    vroughness,
+                    reflectance,
+                    remaproughness,
+                };
+                materials.push(crate::material::Material::CoaDiff(coadiff))
+            }
+            _ => {
+                dbg!(&mat.attributes);
+                panic!("Material paser not support");
+            }
         }
     }
     materials
