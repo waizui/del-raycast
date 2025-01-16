@@ -1,5 +1,4 @@
 use del_msh_core::search_bvh3::TriMeshWithBvh;
-use slice_of_array::SliceArrayExt;
 
 struct Shape {
     vtx2xyz: Vec<f32>,
@@ -84,7 +83,7 @@ fn get_tri_uv(tri_i: usize, pos: &[f32; 3], shape: &Shape) -> [f32; 2] {
         .map(|&vert| {
             assert!(vert * 2 + 2 <= shape.uvs.len(), "uv index out of bounds");
             let uv = &shape.uvs[vert * 2..(vert * 2 + 2)];
-            uv.to_array()
+            [uv[0], uv[1]]
         })
         .collect();
 
