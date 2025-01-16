@@ -1,25 +1,32 @@
 use del_msh_core::search_bvh3::TriMeshWithBvh;
+use slice_of_array::SliceArrayExt;
 
 struct Shape {
     vtx2xyz: Vec<f32>,
     tri2vtx: Vec<usize>,
+    uvs: Vec<f32>,
     transform: [f32; 16],
     bvhnodes: Vec<usize>,
     bvhnode2aabb: Vec<f32>,
     material_index: Option<usize>,
 }
 
-// return scale factor t and shape index of intersection
-fn intersect_bvh(ray_org: &[f32; 3], ray_dir: &[f32; 3], shapes: &[Shape]) -> Option<(f32, usize)> {
+// return scale factor t, shape index and triangle index of intersection
+fn intersect_bvh(
+    ray_org: &[f32; 3],
+    ray_dir: &[f32; 3],
+    shapes: &[Shape],
+) -> Option<(f32, usize, usize)> {
     // compute intersection
     let mut t_min = f32::INFINITY;
     let mut shape_i: usize = usize::MAX;
+    let mut tri_i: usize = usize::MAX;
     for (s_i, trimesh) in shapes.iter().enumerate() {
         let ti = del_geo_core::mat4_col_major::try_inverse(&trimesh.transform).unwrap();
         let ray_org = del_geo_core::mat4_col_major::transform_homogeneous(&ti, ray_org).unwrap();
         let ray_dir = del_geo_core::mat4_col_major::transform_direction(&ti, ray_dir);
 
-        let Some((t, _i_tri)) = del_msh_core::search_bvh3::first_intersection_ray(
+        let Some((t, i_tri)) = del_msh_core::search_bvh3::first_intersection_ray(
             &ray_org,
             &ray_dir,
             &TriMeshWithBvh {
@@ -35,6 +42,7 @@ fn intersect_bvh(ray_org: &[f32; 3], ray_dir: &[f32; 3], shapes: &[Shape]) -> Op
         };
         if t < t_min {
             shape_i = s_i;
+            tri_i = i_tri;
             t_min = t;
         }
     }
@@ -42,8 +50,51 @@ fn intersect_bvh(ray_org: &[f32; 3], ray_dir: &[f32; 3], shapes: &[Shape]) -> Op
     if t_min == f32::INFINITY {
         None
     } else {
-        Some((t_min, shape_i))
+        Some((t_min, shape_i, tri_i))
     }
+}
+
+// get uv coordinates of position of a triangle tri_i
+fn get_tri_uv(tri_i: usize, pos: &[f32; 3], shape: &Shape) -> [f32; 2] {
+    use nalgebra::Vector3;
+
+    let vertices = &shape.tri2vtx[tri_i..tri_i + 3];
+
+    let f: Vec<Vector3<f32>> = vertices
+        .iter()
+        .map(|&vert| {
+            assert!(
+                vert * 3 + 3 <= shape.vtx2xyz.len(),
+                "vertex index out of bounds"
+            );
+            let v = &shape.vtx2xyz[vert * 3..(vert * 3 + 3)];
+            Vector3::new(v[0], v[1], v[2])
+        })
+        .collect();
+
+    let bary = del_geo_nalgebra::tri3::barycentric(
+        &f[0],
+        &f[1],
+        &f[2],
+        &Vector3::new(pos[0], pos[1], pos[2]),
+    );
+
+    let vert_uvs: Vec<[f32; 2]> = vertices
+        .iter()
+        .map(|&vert| {
+            assert!(vert * 2 + 2 <= shape.uvs.len(), "uv index out of bounds");
+            let uv = &shape.uvs[vert * 2..(vert * 2 + 2)];
+            uv.to_array()
+        })
+        .collect();
+
+    let mut acc = [0.; 2];
+    vert_uvs.iter().enumerate().for_each(|(i, vert_uv)| {
+        acc[0] += vert_uv[0] * bary[i];
+        acc[1] += vert_uv[1] * bary[i];
+    });
+
+    acc
 }
 
 fn parse() -> anyhow::Result<(
@@ -57,7 +108,7 @@ fn parse() -> anyhow::Result<(
     let camera = del_raycast_core::parse_pbrt::camera(&scene);
     for shape_entity in scene.shapes.iter() {
         let transform = shape_entity.transform.to_cols_array();
-        let (_, _, tri2vtx, vtx2xyz, _) =
+        let (_, _, tri2vtx, vtx2xyz, _, uvs) =
             del_raycast_core::parse_pbrt::trimesh3_from_shape_entity(shape_entity, path_file)
                 .unwrap();
         let bvhnodes = del_msh_core::bvhnodes_morton::from_triangle_mesh(&tri2vtx, &vtx2xyz, 3);
@@ -71,6 +122,7 @@ fn parse() -> anyhow::Result<(
         let shape = Shape {
             tri2vtx,
             vtx2xyz,
+            uvs,
             transform,
             bvhnodes,
             bvhnode2aabb,
@@ -127,7 +179,8 @@ fn main() -> anyhow::Result<()> {
                 transform_cam_lcl2glbl,
             );
 
-            let Some((t, _i_shape_entity)) = intersect_bvh(&ray_org, &ray_dir, &shapes) else {
+            let Some((t, _i_shape_entity, _tri_i)) = intersect_bvh(&ray_org, &ray_dir, &shapes)
+            else {
                 return;
             };
             let v = (t - 1.5) * 0.8;
@@ -159,11 +212,14 @@ fn main() -> anyhow::Result<()> {
                 transform_cam_lcl2glbl,
             );
 
-            let Some((_t, i_shape_entity)) = intersect_bvh(&ray_org, &ray_dir, &shapes) else {
+            let Some((t, i_shape_entity, tri_i)) = intersect_bvh(&ray_org, &ray_dir, &shapes)
+            else {
                 return;
             };
 
-            let i_material = shapes[i_shape_entity].material_index.unwrap();
+            let shape = &shapes[i_shape_entity];
+
+            let i_material = shape.material_index.unwrap();
 
             assert!(
                 i_material < materials.len(),
@@ -175,9 +231,12 @@ fn main() -> anyhow::Result<()> {
             let reflectance = match &materials[i_material] {
                 del_raycast_core::material::Material::Diff(mat) => {
                     if mat.reflectance_texture != usize::MAX {
-                        //TODO: sample and return texture value
+                        let pos = del_geo_core::vec3::axpy(t, &ray_dir, &ray_org);
+                        let uv = get_tri_uv(tri_i, &pos, shape);
+                        del_raycast_core::textures::sample_checkerboard(&uv, 16, 16)
+                    } else {
+                        mat.reflectance
                     }
-                    mat.reflectance
                 }
                 del_raycast_core::material::Material::Cond(mat) => mat.reflectance,
                 del_raycast_core::material::Material::CoaDiff(mat) => mat.reflectance,

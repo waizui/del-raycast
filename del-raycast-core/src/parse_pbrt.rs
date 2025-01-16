@@ -48,16 +48,27 @@ impl Camera {
     }
 }
 
+// material index, area light index, tri2vtx, vtx2xyz,normals,uvs
+type Trimesh3Data = (
+    usize,
+    Option<usize>,
+    Vec<usize>,
+    Vec<f32>,
+    Vec<f32>,
+    Vec<f32>,
+);
+
 #[allow(clippy::type_complexity)]
 pub fn trimesh3_from_shape_entity(
     shape_entity: &pbrt4::ShapeEntity,
     path_file: &str,
-) -> Option<(usize, Option<usize>, Vec<usize>, Vec<f32>, Vec<f32>)> {
+) -> Option<Trimesh3Data> {
     match &shape_entity.params {
         pbrt4::types::Shape::TriangleMesh {
             positions,
             indices,
             normals,
+            uvs,
             ..
         } => {
             let tri2vtx = indices.iter().map(|&v| v as usize).collect::<Vec<usize>>();
@@ -67,6 +78,7 @@ pub fn trimesh3_from_shape_entity(
                 tri2vtx,
                 positions.to_vec(),
                 normals.to_vec(),
+                uvs.to_vec(), 
             ))
         }
         pbrt4::types::Shape::PlyMesh { filename } => {
@@ -105,12 +117,13 @@ pub fn trimesh3_from_shape_entity(
                     }
                 }
             }
-            // TODO: parse normals for .ply
+            //  TODO: parse normals and uvs for .ply
             Some((
                 shape_entity.material_index.unwrap(),
                 shape_entity.area_light_index,
                 tri2vtx,
                 vtx2xyz,
+                vec![],
                 vec![],
             ))
         }
