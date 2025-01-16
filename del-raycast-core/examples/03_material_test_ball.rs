@@ -1,4 +1,8 @@
 use del_msh_core::search_bvh3::TriMeshWithBvh;
+use del_raycast_core::{
+    parse_pbrt,
+    textures::{CheckerBoardTexture, Texture},
+};
 
 struct Shape {
     vtx2xyz: Vec<f32>,
@@ -198,6 +202,7 @@ fn main() -> anyhow::Result<()> {
     {
         // computing reflectance image
         let materials = del_raycast_core::parse_pbrt::parse_material(&scene);
+        let textures = del_raycast_core::parse_pbrt::parse_texture(&scene);
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             let pix = arrayref::array_mut_ref![pix, 0, 3];
             let iw = i_pix % img_shape.0;
@@ -230,9 +235,16 @@ fn main() -> anyhow::Result<()> {
             let reflectance = match &materials[i_material] {
                 del_raycast_core::material::Material::Diff(mat) => {
                     if mat.reflectance_texture != usize::MAX {
-                        let pos = del_geo_core::vec3::axpy(t, &ray_dir, &ray_org);
-                        let uv = get_tri_uv(tri_i, &pos, shape);
-                        del_raycast_core::textures::sample_checkerboard(&uv, 16, 16)
+                        let tex = &textures[mat.reflectance_texture];
+                        match tex {
+                            Texture::Checkerboard(tex) => {
+                                let pos = del_geo_core::vec3::axpy(t, &ray_dir, &ray_org);
+                                let uv = get_tri_uv(tri_i, &pos, shape);
+                                del_raycast_core::textures::sample_checkerboard(
+                                    &uv, tex.uscale, tex.vscale, &tex.tex1, &tex.tex2,
+                                )
+                            }
+                        }
                     } else {
                         mat.reflectance
                     }
