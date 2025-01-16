@@ -245,8 +245,7 @@ pub fn parse_material(scene: &pbrt4::Scene) -> Vec<crate::material::Material> {
                 let vroughness = get_f32_from_params("vroughness", &mat.params).unwrap();
                 let reflectance = get_f32_array3_from_params("reflectance", &mat.params)
                     .unwrap_or([1.0, 1.0, 1.0]);
-                let remaproughness =
-                    get_bool_from_params("remaproughness", &mat.params).unwrap();
+                let remaproughness = get_bool_from_params("remaproughness", &mat.params).unwrap();
 
                 let coadiff = crate::material::CoatedDiffuse {
                     uroughness,
