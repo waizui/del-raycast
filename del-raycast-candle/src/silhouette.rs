@@ -90,19 +90,25 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
 
 #[test]
 fn test_cpu() -> anyhow::Result<()> {
-    let (tri2vtx, vtx2xyz, vtx2idx, idx2vtx) = {
+    let (tri2vtx, vtx2xyz, vtx2idx, idx2vtx, edge2vtx, edge2tri) = {
         let (tri2vtx, vtx2xyz) =
             del_msh_core::trimesh3_primitive::sphere_yup::<u32, f32>(0.5, 64, 64);
         let num_vtx = vtx2xyz.len() / 3;
         let (vtx2idx, idx2vtx) =
             del_msh_core::vtx2vtx::from_uniform_mesh(&tri2vtx, 3, num_vtx, false);
+        let edge2vtx = del_msh_core::edge2vtx::from_triangle_mesh(&tri2vtx, num_vtx);
         let num_tri = tri2vtx.len() / 3;
+        let num_edge = edge2vtx.len() / 2;
+        let edge2tri = del_msh_core::edge2elem::from_edge2vtx_of_tri2vtx(&edge2vtx, &tri2vtx, num_vtx);
+        //
         let vtx2idx = Tensor::from_vec(vtx2idx, num_vtx + 1, &Device::Cpu)?;
         let num_idx = idx2vtx.len();
         let idx2vtx = Tensor::from_vec(idx2vtx, num_idx, &Device::Cpu)?;
         let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &Device::Cpu)?;
         let vtx2xyz = Var::from_vec(vtx2xyz, (num_vtx, 3), &Device::Cpu)?;
-        (tri2vtx, vtx2xyz, vtx2idx, idx2vtx)
+        let edge2vtx = Tensor::from_vec(edge2vtx, (num_edge,2), &Device::Cpu)?;
+        let edge2tri = Tensor::from_vec(edge2tri, (num_edge, 2), &Device::Cpu)?;
+        (tri2vtx, vtx2xyz, vtx2idx, idx2vtx, edge2vtx, edge2tri)
     };
     let bvhdata = del_msh_candle::bvhnode2aabb::BvhForTriMesh::new(
         tri2vtx.dims2()?.0,
@@ -128,6 +134,7 @@ fn test_cpu() -> anyhow::Result<()> {
     };
     let transform_ndc2world = Tensor::from_vec(transform_ndc2world.to_vec(), 16, &Device::Cpu)?;
     let transform_world2pix = Tensor::from_vec(transform_world2pix.to_vec(), 16, &Device::Cpu)?;
+    let transform_world2ndc = Tensor::from_vec(transform_world2ndc.to_vec(), 16, &Device::Cpu)?;
     let img_trg = {
         let transform_ndc2pix = del_geo_core::mat3_col_major::from_transform_ndc2pix(img_shape);
         let mut img_trg = vec![0f32; img_shape.0 * img_shape.1];
@@ -158,14 +165,19 @@ fn test_cpu() -> anyhow::Result<()> {
             img_shape,
             &transform_ndc2world,
         )?;
-        let edge2vtx_contour =
-            del_msh_candle::edge2vtx_trimesh3::contour(&tri2vtx, &vtx2xyz, &transform_world2ndc)?;
-        let layer = AntiAliasSilhouette {
+        let layer_contour = del_msh_candle::edge2vtx_trimesh3::Layer {
+            tri2vtx: tri2vtx.clone(),
+            edge2vtx: edge2vtx.clone(),
+            edge2tri: edge2tri.clone(),
+            transform_world2ndc: transform_world2ndc.clone(),
+        };
+        let edge2vtx_contour = vtx2xyz.apply_op1(layer_contour)?;
+        let layer_silhouette = AntiAliasSilhouette {
             edge2vtx_contour: edge2vtx_contour.clone(),
             pix2tri: pix2tri.clone(),
             transform_world2pix: transform_world2pix.clone(),
         };
-        let img = vtx2xyz.apply_op1(layer)?;
+        let img = vtx2xyz.apply_op1(layer_silhouette)?;
         if iter % 10 == 0 {
             del_canvas::write_png_from_float_image_grayscale(
                 format!("../target/del-raycast-candle__silhouette_{}.png", iter),
