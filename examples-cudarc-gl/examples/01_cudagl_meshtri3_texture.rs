@@ -3,6 +3,9 @@ use winit::event_loop::EventLoop;
 use winit::window::Window;
 
 #[cfg(feature = "cuda")]
+use del_cudarc::cudarc;
+
+#[cfg(feature = "cuda")]
 use cudarc::driver::CudaSlice;
 
 #[cfg(feature = "cuda")]

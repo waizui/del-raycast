@@ -47,28 +47,77 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
         );
         Ok((CpuStorage::F32(img), (img_shape.1, img_shape.0).into()))
     }
+
+    fn bwd(
+        &self,
+        vtx2xyz: &Tensor,
+        pix2occl: &Tensor,
+        dldw_pix2occl: &Tensor,
+    ) -> candle_core::Result<Option<Tensor>> {
+        assert!(vtx2xyz.device().same_device(&Device::Cpu));
+        assert_eq!(pix2occl.shape(), dldw_pix2occl.shape());
+        let num_vtx = vtx2xyz.dim(0)?;
+        get_cpu_slice_and_storage_from_tensor!(vtx2xyz, _s_vtx2xyz, vtx2xyz, f32);
+        get_cpu_slice_and_storage_from_tensor!(dldw_pix2occl, _s_dldw_pix2occl, dldw_pix2occl, f32);
+        get_cpu_slice_and_storage_from_tensor!(
+            edge2vtx_contour,
+            _s_edge2vtx_contour,
+            self.edge2vtx_contour,
+            u32
+        );
+        let img_shape = (pix2occl.dim(1)?, pix2occl.dim(0)?);
+        let mut dldw_vtx2xyz = vec![0f32; num_vtx * 3];
+        get_cpu_slice_and_storage_from_tensor!(
+            transform_world2pix,
+            _s_transform_world2pix,
+            self.transform_world2pix,
+            f32
+        );
+        let transform_world2pix = arrayref::array_ref![transform_world2pix, 0, 16];
+        get_cpu_slice_and_storage_from_tensor!(pix2tri, _s_pix2tri, self.pix2tri, u32);
+        del_raycast_core::anti_aliased_silhouette::backward_wrt_vtx2xyz(
+            edge2vtx_contour,
+            vtx2xyz,
+            &mut dldw_vtx2xyz,
+            transform_world2pix,
+            img_shape,
+            dldw_pix2occl,
+            pix2tri,
+        );
+        Ok(Some(
+            Tensor::from_vec(dldw_vtx2xyz, (num_vtx, 3), &Device::Cpu).unwrap(),
+        ))
+    }
 }
 
 #[test]
 fn test_cpu() -> anyhow::Result<()> {
-    let (tri2vtx, vtx2xyz) = {
+    let (tri2vtx, vtx2xyz, vtx2idx, idx2vtx, edge2vtx, edge2tri) = {
         let (tri2vtx, vtx2xyz) =
-            del_msh_core::trimesh3_primitive::sphere_yup::<u32, f32>(0.8, 64, 64);
-        let num_tri = tri2vtx.len() / 3;
-        let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &Device::Cpu)?;
+            del_msh_core::trimesh3_primitive::sphere_yup::<u32, f32>(0.5, 64, 64);
         let num_vtx = vtx2xyz.len() / 3;
+        let (vtx2idx, idx2vtx) =
+            del_msh_core::vtx2vtx::from_uniform_mesh(&tri2vtx, 3, num_vtx, false);
+        let edge2vtx = del_msh_core::edge2vtx::from_triangle_mesh(&tri2vtx, num_vtx);
+        let num_tri = tri2vtx.len() / 3;
+        let num_edge = edge2vtx.len() / 2;
+        let edge2tri =
+            del_msh_core::edge2elem::from_edge2vtx_of_tri2vtx(&edge2vtx, &tri2vtx, num_vtx);
+        //
+        let vtx2idx = Tensor::from_vec(vtx2idx, num_vtx + 1, &Device::Cpu)?;
+        let num_idx = idx2vtx.len();
+        let idx2vtx = Tensor::from_vec(idx2vtx, num_idx, &Device::Cpu)?;
+        let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &Device::Cpu)?;
         let vtx2xyz = Var::from_vec(vtx2xyz, (num_vtx, 3), &Device::Cpu)?;
-        (tri2vtx, vtx2xyz)
+        let edge2vtx = Tensor::from_vec(edge2vtx, (num_edge, 2), &Device::Cpu)?;
+        let edge2tri = Tensor::from_vec(edge2tri, (num_edge, 2), &Device::Cpu)?;
+        (tri2vtx, vtx2xyz, vtx2idx, idx2vtx, edge2vtx, edge2tri)
     };
-    let (bvhnodes, bvhnode2aabb) = {
-        let bvhdata = del_msh_candle::bvhnode2aabb::BvhForTriMesh::new(
-            tri2vtx.dims2()?.0,
-            vtx2xyz.dims2()?.1,
-            &Device::Cpu,
-        )?;
-        bvhdata.compute(&tri2vtx, &vtx2xyz)?;
-        (bvhdata.bvhnodes, bvhdata.bvhnode2aabb)
-    };
+    let bvhdata = del_msh_candle::bvhnode2aabb::BvhForTriMesh::new(
+        tri2vtx.dims2()?.0,
+        vtx2xyz.dims2()?.1,
+        &Device::Cpu,
+    )?;
     let img_asp = 1.5;
     let img_shape = (((16 * 6) as f32 * img_asp) as usize, 16 * 6);
     let cam_projection =
@@ -88,51 +137,107 @@ fn test_cpu() -> anyhow::Result<()> {
     };
     let transform_ndc2world = Tensor::from_vec(transform_ndc2world.to_vec(), 16, &Device::Cpu)?;
     let transform_world2pix = Tensor::from_vec(transform_world2pix.to_vec(), 16, &Device::Cpu)?;
-    let pix2tri = crate::pix2tri::from_trimesh3(
-        &tri2vtx,
-        &vtx2xyz,
-        &bvhnodes,
-        &bvhnode2aabb,
-        img_shape,
-        &transform_ndc2world,
-    )?;
-    let edge2vtx_contour =
-        del_msh_candle::edge2vtx_trimesh3::contour(&tri2vtx, &vtx2xyz, &transform_world2ndc)?;
-    let layer = AntiAliasSilhouette {
-        edge2vtx_contour: edge2vtx_contour.clone(),
-        pix2tri: pix2tri.clone(),
-        transform_world2pix: transform_world2pix.clone(),
+    let transform_world2ndc = Tensor::from_vec(transform_world2ndc.to_vec(), 16, &Device::Cpu)?;
+    let img_trg = {
+        let transform_ndc2pix = del_geo_core::mat3_col_major::from_transform_ndc2pix(img_shape);
+        let mut img_trg = vec![0f32; img_shape.0 * img_shape.1];
+        del_canvas::rasterize::circle::fill::<f32, f32>(
+            &mut img_trg,
+            img_shape.0,
+            &[0.0, 0.0],
+            &transform_ndc2pix,
+            (img_shape.1 as f32) * 0.4f32,
+            1f32,
+        );
+        del_canvas::write_png_from_float_image_grayscale(
+            "../target/silhouette_trg.png",
+            img_shape,
+            &img_trg,
+        )?;
+        let img_trg = Tensor::from_vec(img_trg, (img_shape.1, img_shape.0), &Device::Cpu)?;
+        img_trg
     };
-    let img = vtx2xyz.apply_op1(layer)?;
-    del_canvas::write_png_from_float_image_grayscale(
-        "../target/del-raycast-candle__silhouette.png",
-        img_shape,
-        &img.flatten_all()?.to_vec1::<f32>()?,
-    )?;
-    #[cfg(feature = "cuda")]
-    {
-        let device = Device::cuda_if_available(0)?;
-        let tri2vtx = tri2vtx.to_device(&device)?;
-        let vtx2xyz = vtx2xyz.to_device(&device)?;
-        let transform_ndc2world = transform_ndc2world.to_device(&device)?;
-        let bvhdata =
-            del_msh_candle::bvhnode2aabb::BvhForTriMesh::from_trimesh(&tri2vtx, &vtx2xyz)?;
-        let pix2tri_cpu = pix2tri.flatten_all()?.to_vec1::<u32>()?;
-        let pix2tri = Tensor::zeros((img_shape.1, img_shape.0), DType::U32, &device)?;
-        let layer = crate::pix2tri::Pix2Tri {
-            bvhnodes: bvhdata.bvhnodes,
-            bvhnode2aabb: bvhdata.bvhnode2aabb,
-            transform_ndc2world,
+    // ---------------------------------------------------
+    for iter in 0..300 {
+        bvhdata.compute(&tri2vtx, &vtx2xyz)?;
+        let pix2tri = crate::pix2tri::from_trimesh3(
+            &tri2vtx,
+            &vtx2xyz,
+            &bvhdata.bvhnodes,
+            &bvhdata.bvhnode2aabb,
+            img_shape,
+            &transform_ndc2world,
+        )?;
+        let layer_contour = del_msh_candle::edge2vtx_trimesh3::Layer {
+            tri2vtx: tri2vtx.clone(),
+            edge2vtx: edge2vtx.clone(),
+            edge2tri: edge2tri.clone(),
+            transform_world2ndc: transform_world2ndc.clone(),
         };
-        pix2tri.inplace_op3(&tri2vtx, &vtx2xyz, &layer)?;
-        let pix2tri_gpu = pix2tri.flatten_all()?.to_vec1::<u32>()?;
-        pix2tri_cpu
-            .iter()
-            .zip(pix2tri_gpu.iter())
-            .for_each(|(&a, &b)| {
-                assert_eq!(a, b);
-                // println!("{} {}", a, b);
-            })
+        let edge2vtx_contour = vtx2xyz.apply_op1(layer_contour)?;
+        let layer_silhouette = AntiAliasSilhouette {
+            edge2vtx_contour: edge2vtx_contour.clone(),
+            pix2tri: pix2tri.clone(),
+            transform_world2pix: transform_world2pix.clone(),
+        };
+        let img = vtx2xyz.apply_op1(layer_silhouette)?;
+        if iter % 10 == 0 {
+            del_canvas::write_png_from_float_image_grayscale(
+                format!("../target/del-raycast-candle__silhouette_{}.png", iter),
+                img_shape,
+                &img.flatten_all()?.to_vec1::<f32>()?,
+            )?;
+            {
+                let vtx2xyz = vtx2xyz.flatten_all()?.to_vec1::<f32>()?;
+                let tri2vtx = tri2vtx.flatten_all()?.to_vec1::<u32>()?;
+                del_msh_core::io_obj::save_tri2vtx_vtx2xyz(
+                    format!("../target/del-raycast-candle__silhouette_{}.obj", iter),
+                    &tri2vtx,
+                    &vtx2xyz,
+                    3,
+                )?;
+            }
+        }
+        let loss = img.sub(&img_trg)?.sqr()?.sum_all()?;
+        println!("loss: {}", loss.to_vec0::<f32>()?);
+        let grads = loss.backward()?;
+        #[cfg(feature = "cuda")]
+        if iter == 0 {
+            let device = Device::cuda_if_available(0)?;
+            let tri2vtx = tri2vtx.to_device(&device)?;
+            let vtx2xyz = vtx2xyz.to_device(&device)?;
+            let transform_ndc2world = transform_ndc2world.to_device(&device)?;
+            let bvhdata =
+                del_msh_candle::bvhnode2aabb::BvhForTriMesh::from_trimesh(&tri2vtx, &vtx2xyz)?;
+            let pix2tri_cpu = pix2tri.flatten_all()?.to_vec1::<u32>()?;
+            let pix2tri = Tensor::zeros((img_shape.1, img_shape.0), DType::U32, &device)?;
+            let layer = crate::pix2tri::Pix2Tri {
+                bvhnodes: bvhdata.bvhnodes,
+                bvhnode2aabb: bvhdata.bvhnode2aabb,
+                transform_ndc2world,
+            };
+            pix2tri.inplace_op3(&tri2vtx, &vtx2xyz, &layer)?;
+            let pix2tri_gpu = pix2tri.flatten_all()?.to_vec1::<u32>()?;
+            pix2tri_cpu
+                .iter()
+                .zip(pix2tri_gpu.iter())
+                .for_each(|(&a, &b)| {
+                    assert_eq!(a, b);
+                    // println!("{} {}", a, b);
+                })
+        }
+        {
+            let dldw_vtx2xyz = grads.get(&vtx2xyz).unwrap();
+            let layer = del_fem_candle::laplacian_smoothing::LaplacianSmoothing {
+                vtx2idx: vtx2idx.clone(),
+                idx2vtx: idx2vtx.clone(),
+                lambda: 30.0,
+                num_iter: 200,
+            };
+            let grad = dldw_vtx2xyz.apply_op1_no_bwd(&layer)?;
+            let grad = (grad * 0.003)?;
+            vtx2xyz.set(&vtx2xyz.sub(&(grad))?)?;
+        }
     }
     Ok(())
 }

@@ -11,7 +11,6 @@ repository.workspace = true
 cuda = ["candle-core/cuda", "del-raycast-cudarc/cuda", "del-msh-candle/cuda"]
 
 [dependencies]
-candle-core = { git = "https://github.com/huggingface/candle.git"}
 rand.workspace = true
 anyhow.workspace = true
 nalgebra.workspace = true
@@ -20,15 +19,22 @@ itertools.workspace = true
 rayon.workspace = true
 del-geo-core.workspace = true
 del-geo-nalgebra.workspace = true
-del-raycast-core.workspace = true
-del-raycast-cudarc.workspace = true
 del-canvas.workspace = true
 del-msh-core.workspace = true
-del-msh-candle = { git = "https://github.com/nobuyuki83/del-msh.git" }
 del-fem-ls.workspace = true
 del-fem-core.workspace = true
 del-fem-candle.workspace = true
-# del-msh-candle = { path = "../../del-msh/del-msh-candle" }
+candle-core.workspace = true
+del-msh-candle.workspace = true
+
+# for develop/push
+del-raycast-core.workspace = true
+del-raycast-cudarc.workspace = true
+
+# for deploy
+
+
+
 
 [dev-dependencies]
 image.workspace = true

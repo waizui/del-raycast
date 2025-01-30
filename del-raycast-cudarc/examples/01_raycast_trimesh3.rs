@@ -1,5 +1,7 @@
 #[cfg(feature = "cuda")]
 use cudarc::driver::{CudaDevice, LaunchAsync};
+#[cfg(feature = "cuda")]
+use del_cudarc::cudarc;
 
 #[cfg(feature = "cuda")]
 fn main() -> anyhow::Result<()> {
@@ -9,7 +11,6 @@ fn main() -> anyhow::Result<()> {
         obj.load("asset/spot/spot_triangulated.obj")?;
         obj.unified_xyz_uv_as_trimesh()
     };
-    del_msh_cudarc::assert_equal_cpu_gpu(&dev, &tri2vtx, &vtx2xyz)?;
     let bvhnodes = del_msh_core::bvhnodes_morton::from_triangle_mesh(&tri2vtx, &vtx2xyz, 3);
     let bvhnode2aabb = del_msh_core::bvhnode2aabb3::from_uniform_mesh_with_bvh(
         0,

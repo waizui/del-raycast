@@ -7,8 +7,8 @@ license.workspace = true
 
 [features]
 cuda = [
-    "dep:cudarc",
     "dep:del-msh-cudarc",
+    "dep:del-cudarc",
     "del-raycast-cudarc/cuda"]
 
 
@@ -28,9 +28,9 @@ del-gl-core.workspace = true
 del-gl-winit-glutin.workspace = true
 del-canvas.workspace = true
 del-raycast-core.workspace = true
-
-cudarc = { workspace = true, optional = true }
 del-msh-cudarc = { workspace = true, optional = true }
+del-cudarc = {workspace = true, optional = true}
+
 del-raycast-cudarc = { workspace = true, optional = true }
 
 [build-dependencies]

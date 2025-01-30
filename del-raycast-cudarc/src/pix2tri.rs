@@ -1,4 +1,5 @@
 use cudarc::driver::{CudaDevice, CudaSlice, DeviceSlice};
+use del_cudarc::cudarc;
 
 #[allow(clippy::too_many_arguments)]
 pub fn fwd(

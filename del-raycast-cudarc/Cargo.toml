@@ -8,7 +8,6 @@ license.workspace = true
 cuda = [
     "dep:del-msh-cudarc",
     "dep:del-cudarc",
-    "dep:cudarc",
     "dep:del-raycast-cudarc-kernel"]
 
 [dependencies]
@@ -22,7 +21,6 @@ del-geo-core.workspace = true
 del-canvas.workspace = true
 
 # cuda dependent
-cudarc = {workspace = true, optional = true }
 del-cudarc = {workspace = true, optional = true }
 del-msh-cudarc = { workspace = true, optional = true }
 del-raycast-cudarc-kernel = { workspace = true, optional = true }
