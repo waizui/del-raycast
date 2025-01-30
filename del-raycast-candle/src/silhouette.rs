@@ -84,7 +84,9 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
             dldw_pix2occl,
             pix2tri,
         );
-        Ok(Some(Tensor::from_vec(dldw_vtx2xyz, (num_vtx, 3), &Device::Cpu).unwrap()))
+        Ok(Some(
+            Tensor::from_vec(dldw_vtx2xyz, (num_vtx, 3), &Device::Cpu).unwrap(),
+        ))
     }
 }
 
@@ -99,14 +101,15 @@ fn test_cpu() -> anyhow::Result<()> {
         let edge2vtx = del_msh_core::edge2vtx::from_triangle_mesh(&tri2vtx, num_vtx);
         let num_tri = tri2vtx.len() / 3;
         let num_edge = edge2vtx.len() / 2;
-        let edge2tri = del_msh_core::edge2elem::from_edge2vtx_of_tri2vtx(&edge2vtx, &tri2vtx, num_vtx);
+        let edge2tri =
+            del_msh_core::edge2elem::from_edge2vtx_of_tri2vtx(&edge2vtx, &tri2vtx, num_vtx);
         //
         let vtx2idx = Tensor::from_vec(vtx2idx, num_vtx + 1, &Device::Cpu)?;
         let num_idx = idx2vtx.len();
         let idx2vtx = Tensor::from_vec(idx2vtx, num_idx, &Device::Cpu)?;
         let tri2vtx = Tensor::from_vec(tri2vtx, (num_tri, 3), &Device::Cpu)?;
         let vtx2xyz = Var::from_vec(vtx2xyz, (num_vtx, 3), &Device::Cpu)?;
-        let edge2vtx = Tensor::from_vec(edge2vtx, (num_edge,2), &Device::Cpu)?;
+        let edge2vtx = Tensor::from_vec(edge2vtx, (num_edge, 2), &Device::Cpu)?;
         let edge2tri = Tensor::from_vec(edge2tri, (num_edge, 2), &Device::Cpu)?;
         (tri2vtx, vtx2xyz, vtx2idx, idx2vtx, edge2vtx, edge2tri)
     };

@@ -1,5 +1,5 @@
-use del_cudarc::cudarc as cudarc;
 use cudarc::driver::{CudaDevice, CudaSlice, CudaViewMut, DeviceSlice};
+use del_cudarc::cudarc;
 #[allow(clippy::too_many_arguments)]
 pub fn fwd(
     device: &std::sync::Arc<CudaDevice>,

@@ -1,6 +1,6 @@
-#[cfg(feature = "cuda")]
-use del_cudarc::cudarc as cudarc;
 use cudarc::driver::{CudaDevice, LaunchAsync};
+#[cfg(feature = "cuda")]
+use del_cudarc::cudarc;
 
 #[cfg(feature = "cuda")]
 fn main() -> anyhow::Result<()> {
