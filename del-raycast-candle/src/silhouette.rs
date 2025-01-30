@@ -1,4 +1,4 @@
-use candle_core::{CpuStorage, Layout, NdArray, Shape};
+use candle_core::{CpuStorage, Layout, Shape};
 #[allow(unused_imports)]
 use candle_core::{DType, Device, Tensor, Var};
 use std::ops::Deref;
