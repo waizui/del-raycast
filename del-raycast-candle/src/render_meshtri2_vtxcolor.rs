@@ -222,8 +222,8 @@ fn test_optimize_vtxcolor() -> anyhow::Result<()> {
     };
     let vtx2color = {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let vals: Vec<f32> = (0..num_vtx).map(|_| rng.gen::<f32>()).collect();
+        let mut rng = rand::rng();
+        let vals: Vec<f32> = (0..num_vtx).map(|_| rng.random::<f32>()).collect();
         candle_core::Var::from_vec(
             vals,
             candle_core::Shape::from((num_vtx, 1)),

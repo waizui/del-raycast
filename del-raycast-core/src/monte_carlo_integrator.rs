@@ -83,7 +83,7 @@ where
         throughput = throughput.element_wise_mult(&brdf.scale(cos_hit / pdf));
         {
             let russian_roulette_prob = throughput.iter().fold(f32::NAN, |a, b| a.max(*b));
-            if rng.gen::<f32>() < russian_roulette_prob {
+            if rng.random::<f32>() < russian_roulette_prob {
                 throughput = del_geo_core::vec3::scale(&throughput, 1.0 / russian_roulette_prob);
             } else {
                 break; // terminate ray
@@ -171,7 +171,7 @@ where
                 .iter()
                 .max_by(|&a, &b| a.partial_cmp(b).unwrap())
                 .unwrap();
-            if rng.gen::<f32>() < russian_roulette_prob {
+            if rng.random::<f32>() < russian_roulette_prob {
                 throughput = vec3::scale(&throughput, 1.0 / russian_roulette_prob);
             } else {
                 break; // terminate ray
@@ -295,7 +295,7 @@ where
                 .iter()
                 .max_by(|&a, &b| a.partial_cmp(b).unwrap())
                 .unwrap();
-            if rng.gen::<f32>() < russian_roulette_prob {
+            if rng.random::<f32>() < russian_roulette_prob {
                 throughput = vec3::scale(&throughput, 1.0 / russian_roulette_prob);
             } else {
                 break; // terminate ray

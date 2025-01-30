@@ -17,29 +17,22 @@ nalgebra.workspace = true
 arrayref.workspace = true
 itertools.workspace = true
 rayon.workspace = true
-
-# my libraries
 del-geo-core.workspace = true
 del-geo-nalgebra.workspace = true
-del-raycast-core.workspace = true
-del-raycast-cudarc.workspace = true
 del-canvas.workspace = true
 del-msh-core.workspace = true
 del-fem-ls.workspace = true
 del-fem-core.workspace = true
 del-fem-candle.workspace = true
+candle-core.workspace = true
+del-msh-candle.workspace = true
 
-# for push
-# del-msh-candle = { git = "https://github.com/nobuyuki83/del-msh.git" }
-# candle-core = { git = "https://github.com/huggingface/candle.git"}
-
-# for develop
-# del-msh-candle = { path = "../../del-msh/del-msh-candle" }
-# candle-core = { git = "https://github.com/huggingface/candle.git"}
+# for develop/push
+del-raycast-core.workspace = true
+del-raycast-cudarc.workspace = true
 
 # for deploy
-candle-core = "=0.8.2"
-del-msh-candle = "=0.1.39"
+
 
 
 

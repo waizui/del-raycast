@@ -34,7 +34,7 @@ where
     RNG: rand::Rng,
 {
     let ray_dir_next =
-        crate::sampling::hemisphere_zup_cos_weighted(&[rng.gen::<f32>(), rng.gen::<f32>()]);
+        crate::sampling::hemisphere_zup_cos_weighted(&[rng.random::<f32>(), rng.random::<f32>()]);
     use del_geo_core::vec3::Vec3;
     let brdf = reflectance.scale(std::f32::consts::FRAC_1_PI);
     let cos_hit = ray_dir_next[2].clamp(f32::EPSILON, 1f32);
@@ -152,7 +152,7 @@ where
     let alpha = microfacet_beckmann_roughness_to_alpha(roughness);
     let sample_alpha = microfacet_beckmann_roughness_to_alpha(sample_roughness);
     // sampling microfacet normal
-    let m = microfacet_beckmann_sample(sample_alpha, &[rng.gen::<f32>(), rng.gen::<f32>()]);
+    let m = microfacet_beckmann_sample(sample_alpha, &[rng.random::<f32>(), rng.random::<f32>()]);
     assert!(!m[0].is_nan() && !m[1].is_nan() && !m[2].is_nan());
     // microfacet normal PDF
     let m_pdf = microfacet_beckmann_pdf(sample_alpha, &m);
