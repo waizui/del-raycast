@@ -1,3 +1,4 @@
+#[cfg(feature = "cuda")]
 use cudarc::driver::{CudaDevice, LaunchAsync};
 #[cfg(feature = "cuda")]
 use del_cudarc::cudarc;
