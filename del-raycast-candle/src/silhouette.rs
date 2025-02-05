@@ -65,7 +65,7 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
     fn cuda_fwd(
         &self,
         vtx2xyz: &CudaStorage,
-        vtx2xyz_layout: &Layout,
+        l_vtx2xyz: &Layout,
     ) -> candle_core::Result<(CudaStorage, Shape)> {
         use candle_core::cuda_backend::WrapErr;
         let device = &vtx2xyz.device;
@@ -94,7 +94,7 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
             f32
         );
         //let img = candle_core::cuda_backend::cua
-        let img = device.alloc_zeros::<f32>(img_shape.1 * img_shape.0).w()?;
+        let img = del_raycast_cudarc::silhouette::wo_anti_alias(device, img_shape, pix2tri).w()?;
         let s_img = candle_core::CudaStorage::wrap_cuda_slice(img, device.clone());
         Ok((s_img, (img_shape.1, img_shape.0).into()))
     }
@@ -308,6 +308,11 @@ fn test_cpu() -> anyhow::Result<()> {
                 transform_world2pix: transform_world2pix.clone(),
             };
             let img = vtx2xyz.apply_op1(layer_silhouette)?;
+            del_canvas::write_png_from_float_image_grayscale(
+                "../target/del-raycast-candle__silhouette_cuda.png",
+                img_shape,
+                &img.flatten_all()?.to_vec1::<f32>()?,
+            )?;
         }
         {
             let dldw_vtx2xyz = grads.get(&vtx2xyz).unwrap();

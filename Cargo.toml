@@ -55,14 +55,13 @@ del-raycast-cudarc-kernel = {  path = "del-raycast-cudarc-kernel" }
 # del-fem-candle = { path = "../del-fem/del-fem-candle" }
 # del-cudarc = {path="../del-cudarc"}
 # del-msh-cudarc = {path="../del-msh/del-msh-cudarc"}
-#candle-core = { git="https://github.com/huggingface/candle.git" }
+# candle-core = { git="https://github.com/huggingface/candle.git" }
 
 # for git push
 pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }
 del-gl-core = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-gl-winit-glutin = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-geo-core = { git = "https://github.com/nobuyuki83/del-geo.git"}
-del-geo-nalgebra = { git = "https://github.com/nobuyuki83/del-geo.git"}
 del-msh-core = { git = "https://github.com/nobuyuki83/del-msh.git" }
 del-msh-cudarc = { git = "https://github.com/nobuyuki83/del-msh.git", features = ["cuda"]}
 del-msh-candle = { git = "https://github.com/nobuyuki83/del-msh.git" }
