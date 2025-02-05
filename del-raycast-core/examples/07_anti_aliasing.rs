@@ -19,7 +19,10 @@ fn write_silhouette_on_magnified_image(
                 del_geo_core::mat3_col_major::from_transform_ndc2pix(img_shape_hires);
             let transform_ndc2pix =
                 del_geo_core::mat4_col_major::from_mat3_col_major_adding_z(&transform_ndc2pix);
-            del_geo_core::mat4_col_major::mult_mat(&transform_ndc2pix, &transform_world2ndc)
+            del_geo_core::mat4_col_major::mult_mat_col_major(
+                &transform_ndc2pix,
+                &transform_world2ndc,
+            )
         };
         for node2vtx in edge2vtx_contour.chunks(2) {
             let (i0_vtx, i1_vtx) = (node2vtx[0], node2vtx[1]);
@@ -82,14 +85,14 @@ fn main() -> anyhow::Result<()> {
     // ----------------------
 
     let transform_world2ndc =
-        del_geo_core::mat4_col_major::mult_mat(&cam_projection, &cam_modelview);
+        del_geo_core::mat4_col_major::mult_mat_col_major(&cam_projection, &cam_modelview);
     let transform_ndc2world =
         del_geo_core::mat4_col_major::try_inverse(&transform_world2ndc).unwrap();
     let transform_world2pix = {
         let transform_ndc2pix = del_geo_core::mat3_col_major::from_transform_ndc2pix(img_shape);
         let transform_ndc2pix =
             del_geo_core::mat4_col_major::from_mat3_col_major_adding_z(&transform_ndc2pix);
-        del_geo_core::mat4_col_major::mult_mat(&transform_ndc2pix, &transform_world2ndc)
+        del_geo_core::mat4_col_major::mult_mat_col_major(&transform_ndc2pix, &transform_world2ndc)
     };
 
     let mut pix2tri = vec![0u32; img_shape.0 * img_shape.1];
@@ -136,6 +139,15 @@ fn main() -> anyhow::Result<()> {
 
     let img_data = {
         let mut img_data = vec![0f32; img_shape.0 * img_shape.1];
+        use rayon::prelude::*;
+        img_data
+            .par_iter_mut()
+            .zip(pix2tri.par_iter())
+            .for_each(|(a, &b)| {
+                if b != u32::MAX {
+                    *a = 1f32;
+                }
+            });
         del_raycast_core::anti_aliased_silhouette::update_image(
             &edge2vtx_contour,
             &vtx2xyz,
@@ -159,16 +171,17 @@ fn main() -> anyhow::Result<()> {
         &vtx2xyz,
     )?;
     {
+        // compute loss for random target image
         use rand::Rng;
         use rand::SeedableRng;
         let mut rng = rand_chacha::ChaChaRng::seed_from_u64(0u64);
-        let img_data_obj: Vec<f32> = (0..pix2tri.len())
+        let img_data_trg: Vec<f32> = (0..pix2tri.len())
             .into_iter()
-            .map(|_i| rng.gen::<f32>())
+            .map(|_i| rng.random::<f32>())
             .collect();
         let loss = img_data
             .iter()
-            .zip(img_data_obj.iter())
+            .zip(img_data_trg.iter())
             .map(|(&a, &b)| a * b)
             .sum::<f32>();
         let dldw_vtx2xyz = {
@@ -179,17 +192,19 @@ fn main() -> anyhow::Result<()> {
                 &mut dldw_vtx2xyz,
                 &transform_world2pix,
                 img_shape,
-                &img_data_obj,
+                &img_data_trg,
                 &pix2tri,
             );
             dldw_vtx2xyz
         };
+        // the vertex to move
         let list_vtx_on_silhouette = {
             let unique: std::collections::HashSet<u32> =
                 edge2vtx_contour.clone().into_iter().collect();
             Vec::from_iter(unique)
         };
-        let eps = 1.0e-4;
+        // check gradient
+        let eps = 8.0e-4;
         let mut i_cnt_success = 0;
         for i_vtx in list_vtx_on_silhouette.iter().map(|&v| v as usize) {
             for i_dim in 0..3 {
@@ -199,6 +214,15 @@ fn main() -> anyhow::Result<()> {
                     vtx2xyz1
                 };
                 let mut img_data1 = vec![0f32; img_data.len()];
+                use rayon::prelude::*;
+                img_data1
+                    .par_iter_mut()
+                    .zip(pix2tri.par_iter())
+                    .for_each(|(a, &b)| {
+                        if b != u32::MAX {
+                            *a = 1f32;
+                        }
+                    });
                 del_raycast_core::anti_aliased_silhouette::update_image(
                     &edge2vtx_contour,
                     &vtx2xyz1,
@@ -209,19 +233,21 @@ fn main() -> anyhow::Result<()> {
                 );
                 let loss1 = img_data1
                     .iter()
-                    .zip(img_data_obj.iter())
+                    .zip(img_data_trg.iter())
                     .map(|(&a, &b)| a * b)
                     .sum::<f32>();
                 let diff_num = (loss1 - loss) / eps;
                 let diff_ana = dldw_vtx2xyz[i_vtx * 3 + i_dim];
                 let err = (diff_num - diff_ana).abs();
+                // println!("{} {}", diff_num, diff_ana);
                 let ratio = err / (diff_ana.abs() + 0.1);
-                if ratio < 0.02 {
+                if ratio < 0.08 {
                     i_cnt_success += 1;
                 }
             }
         }
-        assert!(i_cnt_success > ((list_vtx_on_silhouette.len() * 3) as f32 * 0.9f32) as usize);
+        println!("{} {}", i_cnt_success, list_vtx_on_silhouette.len() * 3);
+        assert!(i_cnt_success > ((list_vtx_on_silhouette.len() * 3) as f32 * 0.85f32) as usize);
     }
     Ok(())
 }

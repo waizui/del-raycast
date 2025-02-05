@@ -1,3 +1,5 @@
+#[cfg(feature = "cuda")]
+use candle_core::CudaStorage;
 use candle_core::{CpuStorage, Layout, Shape};
 #[allow(unused_imports)]
 use candle_core::{DType, Device, Tensor, Var};
@@ -37,6 +39,17 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
         let transform_world2pix = arrayref::array_ref![transform_world2pix, 0, 16];
         let vtx2xyz = vtx2xyz.as_slice()?;
         let mut img = vec![0f32; img_shape.0 * img_shape.1];
+        {
+            // initial aliased silhouette image
+            use rayon::prelude::*;
+            img.par_iter_mut()
+                .zip(pix2tri.par_iter())
+                .for_each(|(a, &b)| {
+                    if b != u32::MAX {
+                        *a = 1f32;
+                    }
+                });
+        }
         del_raycast_core::anti_aliased_silhouette::update_image(
             edge2vtx_contour,
             vtx2xyz,
@@ -46,6 +59,44 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
             pix2tri,
         );
         Ok((CpuStorage::F32(img), (img_shape.1, img_shape.0).into()))
+    }
+
+    #[cfg(feature = "cuda")]
+    fn cuda_fwd(
+        &self,
+        vtx2xyz: &CudaStorage,
+        vtx2xyz_layout: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        use candle_core::cuda_backend::WrapErr;
+        let device = &vtx2xyz.device;
+        let img_shape = (self.pix2tri.dim(1)?, self.pix2tri.dim(0)?);
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            pix2tri,
+            s_pix2tri,
+            l_pix2tril,
+            self.pix2tri,
+            u32
+        );
+        assert_eq!(self.edge2vtx_contour.dim(1)?, 2);
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            edge2vtx_contour,
+            s_edge2vtx_contour,
+            l_edge2vtx_contour,
+            self.edge2vtx_contour,
+            u32
+        );
+        assert_eq!(self.transform_world2pix.dims(), &[16]);
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            transform_world2pix,
+            s_transform_world2pix,
+            l_transform_world2pix,
+            self.transform_world2pix,
+            f32
+        );
+        //let img = candle_core::cuda_backend::cua
+        let img = device.alloc_zeros::<f32>(img_shape.1 * img_shape.0).w()?;
+        let s_img = candle_core::CudaStorage::wrap_cuda_slice(img, device.clone());
+        Ok((s_img, (img_shape.1, img_shape.0).into()))
     }
 
     fn bwd(
@@ -126,14 +177,14 @@ fn test_cpu() -> anyhow::Result<()> {
         del_geo_core::mat4_col_major::camera_external_blender(&[0., 0., 2.0], 0., 0., 0.);
     // ----------------------
     let transform_world2ndc =
-        del_geo_core::mat4_col_major::mult_mat(&cam_projection, &cam_modelview);
+        del_geo_core::mat4_col_major::mult_mat_col_major(&cam_projection, &cam_modelview);
     let transform_ndc2world =
         del_geo_core::mat4_col_major::try_inverse(&transform_world2ndc).unwrap();
     let transform_world2pix = {
         let transform_ndc2pix = del_geo_core::mat3_col_major::from_transform_ndc2pix(img_shape);
         let transform_ndc2pix =
             del_geo_core::mat4_col_major::from_mat3_col_major_adding_z(&transform_ndc2pix);
-        del_geo_core::mat4_col_major::mult_mat(&transform_ndc2pix, &transform_world2ndc)
+        del_geo_core::mat4_col_major::mult_mat_col_major(&transform_ndc2pix, &transform_world2ndc)
     };
     let transform_ndc2world = Tensor::from_vec(transform_ndc2world.to_vec(), 16, &Device::Cpu)?;
     let transform_world2pix = Tensor::from_vec(transform_world2pix.to_vec(), 16, &Device::Cpu)?;
@@ -168,19 +219,24 @@ fn test_cpu() -> anyhow::Result<()> {
             img_shape,
             &transform_ndc2world,
         )?;
-        let layer_contour = del_msh_candle::edge2vtx_trimesh3::Layer {
-            tri2vtx: tri2vtx.clone(),
-            edge2vtx: edge2vtx.clone(),
-            edge2tri: edge2tri.clone(),
-            transform_world2ndc: transform_world2ndc.clone(),
+        let edge2vtx_contour = {
+            // extract edges on the contour
+            let layer_contour = del_msh_candle::edge2vtx_trimesh3::Layer {
+                tri2vtx: tri2vtx.clone(),
+                edge2vtx: edge2vtx.clone(),
+                edge2tri: edge2tri.clone(),
+                transform_world2ndc: transform_world2ndc.clone(),
+            };
+            vtx2xyz.apply_op1(layer_contour)?
         };
-        let edge2vtx_contour = vtx2xyz.apply_op1(layer_contour)?;
-        let layer_silhouette = AntiAliasSilhouette {
-            edge2vtx_contour: edge2vtx_contour.clone(),
-            pix2tri: pix2tri.clone(),
-            transform_world2pix: transform_world2pix.clone(),
+        let img = {
+            let layer_silhouette = AntiAliasSilhouette {
+                edge2vtx_contour: edge2vtx_contour.clone(),
+                pix2tri: pix2tri.clone(),
+                transform_world2pix: transform_world2pix.clone(),
+            };
+            vtx2xyz.apply_op1(layer_silhouette)?
         };
-        let img = vtx2xyz.apply_op1(layer_silhouette)?;
         if iter % 10 == 0 {
             del_canvas::write_png_from_float_image_grayscale(
                 format!("../target/del-raycast-candle__silhouette_{}.png", iter),
@@ -206,7 +262,11 @@ fn test_cpu() -> anyhow::Result<()> {
             let device = Device::cuda_if_available(0)?;
             let tri2vtx = tri2vtx.to_device(&device)?;
             let vtx2xyz = vtx2xyz.to_device(&device)?;
+            let edge2vtx = edge2vtx.to_device(&device)?;
+            let edge2tri = edge2tri.to_device(&device)?;
             let transform_ndc2world = transform_ndc2world.to_device(&device)?;
+            let transform_world2ndc = transform_world2ndc.to_device(&device)?;
+            let transform_world2pix = transform_world2pix.to_device(&device)?;
             let bvhdata =
                 del_msh_candle::bvhnode2aabb::BvhForTriMesh::from_trimesh(&tri2vtx, &vtx2xyz)?;
             let pix2tri_cpu = pix2tri.flatten_all()?.to_vec1::<u32>()?;
@@ -224,7 +284,30 @@ fn test_cpu() -> anyhow::Result<()> {
                 .for_each(|(&a, &b)| {
                     assert_eq!(a, b);
                     // println!("{} {}", a, b);
-                })
+                });
+            let edge2vtx_contour_cpu = edge2vtx_contour.flatten_all()?.to_vec1::<u32>()?;
+            let layer_contour = del_msh_candle::edge2vtx_trimesh3::Layer {
+                tri2vtx: tri2vtx.clone(),
+                edge2vtx: edge2vtx.clone(),
+                edge2tri: edge2tri.clone(),
+                transform_world2ndc: transform_world2ndc.clone(),
+            };
+            let edge2vtx_contour = vtx2xyz.apply_op1(layer_contour)?;
+            let edge2vtx_contour_gpu = edge2vtx_contour.flatten_all()?.to_vec1::<u32>()?;
+            edge2vtx_contour_cpu
+                .iter()
+                .zip(edge2vtx_contour_gpu.iter())
+                .for_each(|(&a, &b)| {
+                    assert_eq!(a, b);
+                    // println!("{} {}", a, b);
+                });
+            let img_cpu = img.flatten_all()?.to_vec1::<f32>()?;
+            let layer_silhouette = AntiAliasSilhouette {
+                edge2vtx_contour: edge2vtx_contour.clone(),
+                pix2tri: pix2tri.clone(),
+                transform_world2pix: transform_world2pix.clone(),
+            };
+            let img = vtx2xyz.apply_op1(layer_silhouette)?;
         }
         {
             let dldw_vtx2xyz = grads.get(&vtx2xyz).unwrap();

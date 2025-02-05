@@ -382,7 +382,7 @@ mod tests {
             let cam_modelview =
                 del_geo_core::mat4_col_major::camera_external_blender(&[0., 0., 3.0], 0., 0., 0.);
             let transform_world2ndc =
-                del_geo_core::mat4_col_major::mult_mat(&cam_projection, &cam_modelview);
+                del_geo_core::mat4_col_major::mult_mat_col_major(&cam_projection, &cam_modelview);
             del_geo_core::mat4_col_major::try_inverse(&transform_world2ndc).unwrap()
         };
         let (pix2depth_trg, pix2mask) = {

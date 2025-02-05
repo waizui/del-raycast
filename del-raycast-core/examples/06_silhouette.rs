@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     let cam_modelview =
         del_geo_core::mat4_col_major::camera_external_blender(&[0., 0., 2.0], 0., 0., 0.);
     let transform_world2ndc =
-        del_geo_core::mat4_col_major::mult_mat(&cam_projection, &cam_modelview);
+        del_geo_core::mat4_col_major::mult_mat_col_major(&cam_projection, &cam_modelview);
     dbg!(&transform_world2ndc);
     let edge2vtx_silhouette = {
         let edge2vtx =

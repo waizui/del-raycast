@@ -1,23 +1,24 @@
 use num_traits::float::FloatConst;
-type Vector = nalgebra::Vector3<f64>;
 
 struct Ray {
-    o: Vector,
-    d: Vector,
+    o: [f64; 3],
+    d: [f64; 3],
 }
 
 impl Ray {
-    fn new(o: Vector, d: Vector) -> Self {
+    fn new(o: [f64; 3], d: [f64; 3]) -> Self {
         Self { o, d }
     }
 }
 
-fn radiance(ray: &Ray, vtx2xyz: &[f64], rng: &mut rand::rngs::ThreadRng) -> Vector {
-    let floor = (Vector::new(0., 0., 0.), Vector::new(0., 1., 0.));
+fn radiance(ray: &Ray, vtx2xyz: &[f64], rng: &mut rand::rngs::ThreadRng) -> [f64; 3] {
+    use del_geo_core::mat3_col_major::Mat3ColMajor;
+    use del_geo_core::vec3::Vec3;
+    let floor = ([0., 0., 0.], [0., 1., 0.]);
     let mut i_material = 0; // none
     let mut hit_depth = Option::<f64>::None;
     {
-        let hd = del_geo_nalgebra::plane::intersection_ray3(&floor.0, &floor.1, &ray.o, &ray.d);
+        let hd = del_geo_core::plane::intersection_ray3(&floor.0, &floor.1, &ray.o, &ray.d);
         if hd.is_some() {
             if hit_depth.is_none() || Some(hd) < Some(hit_depth) {
                 hit_depth = hd;
@@ -41,26 +42,26 @@ fn radiance(ray: &Ray, vtx2xyz: &[f64], rng: &mut rand::rngs::ThreadRng) -> Vect
     }
     match i_material {
         1 => {
-            let n = Vector::new(0., 1., 0.);
-            let m = nalgebra::Matrix3::new(1.0, 0., 0., 0., 1.0, 0., 0., 0., 1.0);
-            let hit_pos = ray.o + hit_depth.unwrap() * ray.d;
+            let n = [0., 1., 0.];
+            let m = [1.0, 0., 0., 0., 1.0, 0., 0., 0., 1.0];
+            let hit_pos = ray.o.add(&ray.d.scale(hit_depth.unwrap()));
             let mut a = 0.;
             let num_vtx = vtx2xyz.len() / 3;
             for ino0 in 0..num_vtx {
                 let ino1 = (ino0 + 1) % num_vtx;
-                let v0 = Vector::from_row_slice(&vtx2xyz[ino0 * 3..(ino0 + 1) * 3]);
-                let v1 = Vector::from_row_slice(&vtx2xyz[ino1 * 3..(ino1 + 1) * 3]);
-                let v0 = (m * (v0 - hit_pos)).normalize();
-                let v1 = (m * (v1 - hit_pos)).normalize();
+                let v0 = arrayref::array_ref![&vtx2xyz, ino0 * 3, 3];
+                let v1 = arrayref::array_ref![&vtx2xyz, ino1 * 3, 3];
+                let v0 = m.mult_vec(&v0.sub(&hit_pos)).normalize();
+                let v1 = m.mult_vec(&v1.sub(&hit_pos)).normalize();
                 let t0 = v0.cross(&v1).normalize().dot(&n);
                 let t1 = v0.dot(&v1).acos();
                 a += t0 * t1;
             }
             a *= -f64::FRAC_1_PI();
-            Vector::new(a, a, a)
+            [a, a, a]
         }
-        2 => Vector::new(1., 1., 1.),
-        _ => Vector::new(0., 0., 0.),
+        2 => [1., 1., 1.],
+        _ => [0., 0., 0.],
     }
 }
 
@@ -68,12 +69,8 @@ fn main() {
     let vtx2xyz: Vec<f64> = vec![0., 30., 0., 30., 1., 0., 0., 60., 0., -30., 1.0, 0.];
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    let cam = del_raycast_core::cam3::Camera3::new(
-        1024,
-        768,
-        Vector::new(50., 52., 295.6),
-        Vector::new(0., -0.042612, -1.),
-    );
+    let cam =
+        del_raycast_core::cam3::Camera3::new(1024, 768, [50., 52., 295.6], [0., -0.042612, -1.]);
     let mut img = Vec::<image::Rgb<f32>>::new();
     img.resize(cam.w * cam.h, image::Rgb([0_f32; 3]));
     for y in 0..cam.h {
@@ -83,7 +80,7 @@ fn main() {
             let ray = cam.ray(0.5 + x as f64, 0.5 + y as f64);
             let ray = Ray::new(ray.0, ray.1);
             let c = radiance(&ray, &vtx2xyz, &mut rng);
-            img[(cam.h - 1 - y) * cam.w + x] = image::Rgb([c.x as f32, c.y as f32, c.z as f32]);
+            img[(cam.h - 1 - y) * cam.w + x] = image::Rgb([c[0] as f32, c[1] as f32, c[2] as f32]);
         }
     }
     {
