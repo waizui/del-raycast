@@ -46,35 +46,42 @@ del-raycast-cudarc-kernel = {  path = "del-raycast-cudarc-kernel" }
 # del-geo-core = { path = "../del-geo/del-geo-core" }
 # del-geo-nalgebra = { path="../del-geo/del-geo-nalgebra" }
 # del-msh-core = { path = "../del-msh/del-msh-core" }
+# del-msh-candle = { path = "../del-msh/del-msh-candle" }
 # del-canvas = {path = "../del-canvas"}
 # del-gl-core = { path = "../del-gl/del-gl-core"}
 # del-gl-winit-glutin = { path = "../del-gl/del-gl-winit-glutin"}
+# del-fem-core = {path = "../del-fem/del-fem-core"}
+# del-fem-ls = {path = "../del-fem/del-fem-ls"}
 # del-fem-candle = { path = "../del-fem/del-fem-candle" }
+# del-cudarc = {path="../del-cudarc"}
+# del-msh-cudarc = {path="../del-msh/del-msh-cudarc"}
+# candle-core = { git="https://github.com/huggingface/candle.git" }
 
 # for git push
 pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }
-# del-geo-core = { git = "https://github.com/nobuyuki83/del-geo.git"}
-# del-geo-nalgebra = { git = "https://github.com/nobuyuki83/del-geo.git"}
-# del-msh-core = { git = "https://github.com/nobuyuki83/del-msh.git" }
-# del-msh-cudarc = { git = "https://github.com/nobuyuki83/del-msh.git", features = ["cuda"]}
-# del-fem-ls = {git="https://github.com/nobuyuki83/del-fem.git"}
-# del-fem-core = {git="https://github.com/nobuyuki83/del-fem.git"}
-# del-fem-candle = {git="https://github.com/nobuyuki83/del-fem.git"}
 del-gl-core = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-gl-winit-glutin = {git = "https://github.com/nobuyuki83/del-gl.git"}
-# del-cudarc = {git="https://github.com/nobuyuki83/del-cudarc.git"}
-# del-canvas = {git="https://github.com/nobuyuki83/del-canvas.git"}
+del-geo-core = { git = "https://github.com/nobuyuki83/del-geo.git"}
+del-msh-core = { git = "https://github.com/nobuyuki83/del-msh.git" }
+del-msh-cudarc = { git = "https://github.com/nobuyuki83/del-msh.git", features = ["cuda"]}
+del-msh-candle = { git = "https://github.com/nobuyuki83/del-msh.git" }
+del-fem-ls = {git="https://github.com/nobuyuki83/del-fem.git"}
+del-fem-core = {git="https://github.com/nobuyuki83/del-fem.git"}
+del-fem-candle = {git="https://github.com/nobuyuki83/del-fem.git"}
+del-cudarc = {git="https://github.com/nobuyuki83/del-cudarc.git"}
+del-canvas = {git="https://github.com/nobuyuki83/del-canvas.git"}
+candle-core = { git="https://github.com/huggingface/candle.git" }
 
 # for deploy
-del-geo-core = "=0.1.33"
-del-geo-nalgebra = "=0.1.33"
-del-msh-core = "=0.1.37"
-del-msh-cudarc = "=0.1.39"
-del-msh-candle = "=0.1.39"
-del-fem-core = "=0.1.5"
-del-fem-ls = "=0.1.5"
-del-fem-candle = "=0.1.4"
-del-cudarc = "=0.1.2"
-candle-core = "=0.8.2"
-del-canvas = "=0.1.2"
+# del-geo-core = "=0.1.33"
+# del-geo-nalgebra = "=0.1.33"
+# del-msh-core = "=0.1.37"
+# del-msh-cudarc = "=0.1.39"
+# del-msh-candle = "=0.1.39"
+# del-fem-core = "=0.1.5"
+# del-fem-ls = "=0.1.5"
+# del-fem-candle = "=0.1.4"
+# del-cudarc = "=0.1.2"
+#candle-core = "=0.8.2"
+# del-canvas = "=0.1.2"
 # for deploy

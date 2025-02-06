@@ -49,7 +49,7 @@ impl del_gl_winit_glutin::app3::Content for Content {
         cam_model: &[f32; 16],
     ) -> Vec<u8> {
         let transform_world2ndc =
-            del_geo_core::mat4_col_major::mult_mat(&cam_projection, &cam_model);
+            del_geo_core::mat4_col_major::mult_mat_col_major(&cam_projection, &cam_model);
         let transform_ndc2world =
             del_geo_core::mat4_col_major::try_inverse(&transform_world2ndc).unwrap();
         let mut pix2tri = vec![0usize; img_shape.0 * img_shape.1];

@@ -72,7 +72,7 @@ impl MyScene {
     ) -> Option<([f32; 3], f32, [f32; 3])> {
         use del_geo_core::vec3;
         let (pos_light, nrm_light, pdf_shape) =
-            self.shape_entities[i_shape_entity_light].sample_uniform(&[rng.gen(), rng.gen()]);
+            self.shape_entities[i_shape_entity_light].sample_uniform(&[rng.random(), rng.random()]);
         let uvec_hit2light = vec3::normalize(&vec3::sub(&pos_light, &pos_observe));
         let cos_theta_light = -vec3::dot(&nrm_light, &uvec_hit2light);
         if cos_theta_light < 0. {
@@ -130,7 +130,7 @@ impl MyScene {
         // sampling light on the unit sphere around `pos_observe`
         let Some((uvec_obs2light, pos_light, pdf_usphere)) = self.shape_entities
             [i_shape_entity_light]
-            .sample_visible(pos_observe, &[rng.gen(), rng.gen()])
+            .sample_visible(pos_observe, &[rng.random(), rng.random()])
         else {
             return None;
         };
@@ -275,7 +275,7 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
     ) -> Option<([f32; 3], f32, [f32; 3])> {
         use del_geo_core::vec3;
         let al2mag = self.build_area_light_importance_heuristic(pos_observe);
-        let (ial, _rand1, pdf0) = del_msh_core::cumsum::sample(&al2mag, rng.gen::<f32>());
+        let (ial, _rand1, pdf0) = del_msh_core::cumsum::sample(&al2mag, rng.random::<f32>());
         let ise = self.area_light_geometries[ial].i_shape_entity;
         if i_shape_entity_observe == ise {
             return None;
@@ -318,8 +318,8 @@ fn mc_integration(
             let (ray0_org, ray0_dir) = camera.ray(
                 i_pix,
                 [
-                    del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    del_raycast_core::sampling::tent(rng.gen::<f32>()),
+                    del_raycast_core::sampling::tent(rng.random::<f32>()),
+                    del_raycast_core::sampling::tent(rng.random::<f32>()),
                 ],
             );
             let rad = match integration_type {

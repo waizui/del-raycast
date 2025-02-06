@@ -18,20 +18,21 @@ where
     [r * phi.cos(), r * phi.sin(), z]
 }
 
-pub fn hemisphere_cos_weighted<T>(n: &nalgebra::Vector3<T>, r2: &[T; 2]) -> nalgebra::Vector3<T>
+pub fn hemisphere_cos_weighted<T>(n: &[T; 3], r2: &[T; 2]) -> [T; 3]
 where
-    T: num_traits::Float + Copy + 'static + nalgebra::RealField,
+    T: num_traits::Float + Copy + 'static,
     f64: AsPrimitive<T>,
 {
+    use del_geo_core::vec3::Vec3;
     let h0 = hemisphere_zup_cos_weighted(r2);
     let t = if num_traits::Float::abs(n[0]) > 0.1.as_() {
-        nalgebra::Vector3::<T>::new(T::zero(), T::one(), T::zero())
+        [T::zero(), T::one(), T::zero()]
     } else {
-        nalgebra::Vector3::<T>::new(T::one(), T::zero(), T::zero())
+        [T::one(), T::zero(), T::zero()]
     };
     let u = t.cross(n).normalize(); // orthogonal to w
     let v = n.cross(&u); // orthogonal to w and u
-    (u.scale(h0[0]) + v.scale(h0[1]) + n.scale(h0[2])).normalize()
+    del_geo_core::vec3::add_three(&u.scale(h0[0]), &v.scale(h0[1]), &n.scale(h0[2])).normalize()
 }
 
 pub fn tent<T>(r0: T) -> T

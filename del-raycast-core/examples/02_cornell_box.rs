@@ -45,8 +45,8 @@ impl MyScene {
         rng: &mut Rng,
     ) -> Option<([f32; 3], f32, [f32; 3])> {
         use del_geo_core::vec3;
-        let (pos_light, nrm_light, pdf_shape) =
-            self.shape_entities[self.i_shape_entity_light].sample_uniform(&[rng.gen(), rng.gen()]);
+        let (pos_light, nrm_light, pdf_shape) = self.shape_entities[self.i_shape_entity_light]
+            .sample_uniform(&[rng.random(), rng.random()]);
         let uvec_hit2light = vec3::normalize(&vec3::sub(&pos_light, &pos_observe));
         let cos_theta_light = -vec3::dot(&nrm_light, &uvec_hit2light);
         if cos_theta_light < 0. {

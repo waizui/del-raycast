@@ -142,11 +142,12 @@ fn main() -> anyhow::Result<()> {
         let mut tri2vtx: Vec<usize> = vec![];
         let mut vtx2xyz: Vec<f32> = vec![];
         for trimesh in shapes.iter() {
-            let t = del_geo_core::mat4_col_major::mult_mat(
+            let t = del_geo_core::mat4_col_major::mult_mat_col_major(
                 &camera.transform_world2camlcl,
                 &trimesh.transform,
             );
-            let trimesh_vtx2xyz = del_msh_core::vtx2xyz::transform(&trimesh.vtx2xyz, &t);
+            let trimesh_vtx2xyz =
+                del_msh_core::vtx2xyz::transform_homogeneous(&trimesh.vtx2xyz, &t);
             del_msh_core::uniform_mesh::merge(
                 &mut tri2vtx,
                 &mut vtx2xyz,

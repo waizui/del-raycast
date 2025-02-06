@@ -51,12 +51,7 @@ fn main() -> anyhow::Result<()> {
                 camera_fov,
                 transform_camlcl2world,
             );
-            let t = del_geo_nalgebra::sphere::intersection_ray(
-                &nalgebra::Vector3::<f32>::from(sphere_cntr),
-                0.7,
-                &nalgebra::Vector3::<f32>::from(ray_org),
-                &nalgebra::Vector3::<f32>::from(ray_dir),
-            );
+            let t = del_geo_core::sphere::intersection_ray(0.7, &sphere_cntr, &ray_org, &ray_dir);
             if let Some(t) = t {
                 use del_geo_core::vec3;
                 let pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
@@ -115,12 +110,7 @@ fn main() -> anyhow::Result<()> {
                 camera_fov,
                 transform_camlcl2world,
             );
-            let t = del_geo_nalgebra::sphere::intersection_ray(
-                &nalgebra::Vector3::<f32>::from(sphere_cntr),
-                0.7,
-                &nalgebra::Vector3::<f32>::from(ray_org),
-                &nalgebra::Vector3::<f32>::from(ray_dir),
-            );
+            let t = del_geo_core::sphere::intersection_ray(0.7, &sphere_cntr, &ray_org, &ray_dir);
             if let Some(t) = t {
                 use del_geo_core::vec3;
                 let hit_pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
@@ -132,8 +122,8 @@ fn main() -> anyhow::Result<()> {
                 let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
                 for _isample in 0..samples {
                     let refl_dir: [f32; 3] = del_raycast_core::sampling::hemisphere_cos_weighted(
-                        &nalgebra::Vector3::<f32>::new(hit_nrm[0], hit_nrm[1], hit_nrm[2]),
-                        &[rng.gen::<f32>(), rng.gen::<f32>()],
+                        &[hit_nrm[0], hit_nrm[1], hit_nrm[2]],
+                        &[rng.random::<f32>(), rng.random::<f32>()],
                     )
                     .into();
                     let refl_dir = vec3::normalize(&refl_dir);
@@ -241,12 +231,7 @@ fn main() -> anyhow::Result<()> {
                 camera_fov,
                 transform_camlcl2world,
             );
-            let t = del_geo_nalgebra::sphere::intersection_ray(
-                &nalgebra::Vector3::<f32>::from(sphere_cntr),
-                0.7,
-                &nalgebra::Vector3::<f32>::from(ray_org),
-                &nalgebra::Vector3::<f32>::from(ray_dir),
-            );
+            let t = del_geo_core::sphere::intersection_ray(0.7, &sphere_cntr, &ray_org, &ray_dir);
             if let Some(t) = t {
                 use del_geo_core::vec3;
                 let hit_pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
