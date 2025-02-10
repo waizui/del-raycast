@@ -13,12 +13,9 @@ cuda = ["candle-core/cuda", "del-raycast-cudarc/cuda", "del-msh-candle/cuda"]
 [dependencies]
 rand.workspace = true
 anyhow.workspace = true
-nalgebra.workspace = true
 arrayref.workspace = true
-itertools.workspace = true
 rayon.workspace = true
 del-geo-core.workspace = true
-# del-geo-nalgebra.workspace = true
 del-canvas.workspace = true
 del-msh-core.workspace = true
 del-fem-ls.workspace = true

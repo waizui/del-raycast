@@ -19,7 +19,6 @@ rayon.workspace = true
 
 # for development
 pbrt4.workspace = true
-# del-geo-nalgebra.workspace = true
 del-geo-core.workspace = true
 del-msh-core.workspace = true
 del-canvas.workspace = true
