@@ -1,5 +1,6 @@
 [package]
 name = "del-raycast-cudarc-kernel"
+edition = "2021"
 description = "hogehoge"
 
 [dependencies]
