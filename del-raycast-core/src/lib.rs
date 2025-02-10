@@ -1,4 +1,3 @@
-pub mod anti_aliased_silhouette;
 pub mod area_light;
 pub mod bxdf;
 pub mod cam2;
@@ -12,4 +11,5 @@ pub mod parse_pbrt;
 pub mod raycast_trimesh3;
 pub mod sampling;
 pub mod shape;
+pub mod silhouette;
 pub mod textures;

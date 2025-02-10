@@ -1,3 +1,4 @@
+#include <cfloat>
 #include <stdio.h>
 #include <cuda_runtime.h>
 #include <thrust/pair.h>
@@ -25,6 +26,7 @@ void fwd_pix2tri(
     auto ray = ray_for_pixel(i_pix, img_w, img_h, transform_ndc2world);
     float hit_depth = FLT_MAX;
     uint32_t hit_idxtri = UINT32_MAX;
+
 /*
     for(int i_tri=0;i_tri<num_tri;++i_tri){
         const float* p0 = vtx2xyz + tri2vtx[i_tri*3+0]*3;

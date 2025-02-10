@@ -2,6 +2,9 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/pix2tri.cu");
     println!("cargo:rerun-if-changed=src/pix2depth.cu");
+    println!("cargo:rerun-if-changed=src/silhouette.cu");
+    println!("cargo:rerun-if-changed=src/ray_for_pixel.h");
+    println!("cargo:rerun-if-changed=src/dda.h");
     let path_out_dir = std::env::var("OUT_DIR").unwrap();
     let path_out_dir = std::path::Path::new(&path_out_dir).join("cpp_headers");
     // dbg!(&path_out_dir);

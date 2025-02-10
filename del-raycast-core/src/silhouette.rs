@@ -1,11 +1,11 @@
-struct Hoge {
+struct Neighbour {
     i_cnt: usize,
     is_horizontal: bool,
     list_i_pix: [usize; 5],
     list_pos_c: [[f32; 2]; 5],
 }
 
-impl Hoge {
+impl Neighbour {
     fn new(i_pix: usize, img_width: usize, is_horizontal: bool) -> Self {
         let (iw1, ih1) = (i_pix % img_width, i_pix / img_width);
         let list_i_pix = [
@@ -22,7 +22,7 @@ impl Hoge {
             [iw1 as f32 + 0.5, ih1 as f32 - 0.5], // s
             [iw1 as f32 + 0.5, ih1 as f32 + 1.5], // n
         ];
-        Hoge {
+        Neighbour {
             i_cnt: 0,
             list_i_pix,
             list_pos_c,
@@ -31,7 +31,7 @@ impl Hoge {
     }
 }
 
-impl Iterator for Hoge {
+impl Iterator for Neighbour {
     type Item = (usize, [f32; 2], usize, [f32; 2]);
     fn next(&mut self) -> Option<Self::Item> {
         if self.i_cnt >= 4 {
@@ -62,13 +62,11 @@ pub fn update_image(
     for node2vtx in edge2vtx_contour.chunks(2) {
         use del_geo_core::vec3::Vec3;
         let (i0_vtx, i1_vtx) = (node2vtx[0], node2vtx[1]);
-        let q0 = del_msh_core::vtx2xyz::to_xyz(vtx2xyz, i0_vtx as usize)
-            .p
+        let q0 = del_msh_core::vtx2xyz::to_vec3(vtx2xyz, i0_vtx as usize)
             .transform_homogeneous(transform_world2pix)
             .unwrap()
             .xy();
-        let q1 = del_msh_core::vtx2xyz::to_xyz(vtx2xyz, i1_vtx as usize)
-            .p
+        let q1 = del_msh_core::vtx2xyz::to_vec3(vtx2xyz, i1_vtx as usize)
             .transform_homogeneous(transform_world2pix)
             .unwrap()
             .xy();
@@ -76,7 +74,7 @@ pub fn update_image(
         let is_horizontal = v01[0].abs() < v01[1].abs();
         let list_pix = del_geo_core::edge2::overlapping_pixels_dda(img_shape, &q0, &q1);
         for &i_pix in list_pix.iter() {
-            let hoge = Hoge::new(i_pix, img_shape.0, is_horizontal);
+            let hoge = Neighbour::new(i_pix, img_shape.0, is_horizontal);
             for (i_pix0, c0, i_pix1, c1) in hoge {
                 if pix2tri[i_pix0] == u32::MAX || pix2tri[i_pix1] != u32::MAX {
                     continue;
@@ -119,7 +117,7 @@ pub fn backward_wrt_vtx2xyz(
         let is_horizontal = v01[0].abs() < v01[1].abs();
         let list_pix = del_geo_core::edge2::overlapping_pixels_dda(img_shape, &q0, &q1);
         for &i_pix in list_pix.iter() {
-            let hoge = Hoge::new(i_pix, img_shape.0, is_horizontal);
+            let hoge = Neighbour::new(i_pix, img_shape.0, is_horizontal);
             for (i_pix0, c0, i_pix1, c1) in hoge {
                 if pix2tri[i_pix0] == u32::MAX || pix2tri[i_pix1] != u32::MAX {
                     continue;
