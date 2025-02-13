@@ -50,7 +50,7 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
                     }
                 });
         }
-        del_raycast_core::anti_aliased_silhouette::update_image(
+        del_raycast_core::silhouette::update_image(
             edge2vtx_contour,
             vtx2xyz,
             transform_world2pix,
@@ -93,10 +93,22 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
             self.transform_world2pix,
             f32
         );
+        let vtx2xyz = vtx2xyz.as_cuda_slice()?;
         //let img = candle_core::cuda_backend::cua
-        let img = del_raycast_cudarc::silhouette::wo_anti_alias(device, img_shape, pix2tri).w()?;
-        let s_img = candle_core::CudaStorage::wrap_cuda_slice(img, device.clone());
-        Ok((s_img, (img_shape.1, img_shape.0).into()))
+        let mut pix2occu =
+            del_raycast_cudarc::silhouette::compute_with_alias(device, img_shape, pix2tri).w()?;
+        del_raycast_cudarc::silhouette::remove_alias(
+            device,
+            edge2vtx_contour,
+            img_shape,
+            &mut pix2occu,
+            pix2tri,
+            vtx2xyz,
+            transform_world2pix,
+        )
+        .w()?;
+        let s_pix2occu = candle_core::CudaStorage::wrap_cuda_slice(pix2occu, device.clone());
+        Ok((s_pix2occu, (img_shape.1, img_shape.0).into()))
     }
 
     fn bwd(
@@ -126,7 +138,7 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
         );
         let transform_world2pix = arrayref::array_ref![transform_world2pix, 0, 16];
         get_cpu_slice_and_storage_from_tensor!(pix2tri, _s_pix2tri, self.pix2tri, u32);
-        del_raycast_core::anti_aliased_silhouette::backward_wrt_vtx2xyz(
+        del_raycast_core::silhouette::backward_wrt_vtx2xyz(
             edge2vtx_contour,
             vtx2xyz,
             &mut dldw_vtx2xyz,
@@ -313,6 +325,11 @@ fn test_cpu() -> anyhow::Result<()> {
                 img_shape,
                 &img.flatten_all()?.to_vec1::<f32>()?,
             )?;
+            let img_gpu = img.flatten_all()?.to_vec1::<f32>()?;
+            img_cpu.iter().zip(img_gpu.iter()).for_each(|(&a, &b)| {
+                assert!((a - b).abs() < 1.0e-5, "{} {}", a, b);
+                // println!("{} {}", a, b);
+            });
         }
         {
             let dldw_vtx2xyz = grads.get(&vtx2xyz).unwrap();
