@@ -42,7 +42,7 @@ del-raycast-cudarc = {  path = "del-raycast-cudarc" }
 del-raycast-cudarc-kernel = {  path = "del-raycast-cudarc-kernel" }
 
 # for development
-# pbrt4 = { path = "../pbrt4" }
+pbrt4 = { path = "../pbrt4" }
 # del-geo-core = { path = "../del-geo/del-geo-core" }
 # del-msh-core = { path = "../del-msh/del-msh-core" }
 # del-msh-candle = { path = "../del-msh/del-msh-candle" }
@@ -57,7 +57,7 @@ del-raycast-cudarc-kernel = {  path = "del-raycast-cudarc-kernel" }
 # candle-core = { git="https://github.com/huggingface/candle.git" }
 
 # for git push
-pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }
+#pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }
 del-gl-core = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-gl-winit-glutin = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-geo-core = { git = "https://github.com/nobuyuki83/del-geo.git"}

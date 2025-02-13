@@ -22,6 +22,14 @@ pub struct ConductorMaterial {
 }
 
 #[derive(Debug)]
+pub struct DielectricMaterial {
+    pub uroughness: f32,
+    pub vroughness: f32,
+    pub remaproughness: bool,
+    pub eta: [f32; 3],
+}
+
+#[derive(Debug)]
 pub struct CoatedDiffuse {
     pub uroughness: f32,
     pub vroughness: f32,
@@ -197,6 +205,81 @@ pub fn eval_brdf_rough_conductor(
     let f = fresnel_conductor_reflectance_rgb(eta, k, wi_dot_m);
     f.scale(g * d * 0.25f32 / (wi[2] * wo[2]))
         .element_wise_mult(reflectance)
+}
+
+pub fn sample_brdf_dielectric<RNG>(
+    wi: &[f32; 3],
+    reflectance: &[f32; 3],
+    eta: &[f32; 3],
+    uroughness: f32,
+    vroughness: f32,
+    rng: &mut RNG,
+) -> Option<([f32; 3], [f32; 3], f32)>
+where
+    RNG: rand::Rng,
+{
+    let smooth = |x: f32, y: f32| x.max(y) < 1e-3;
+    // specular
+    if eta.iter().all(|&x| x == 1.) || (smooth(uroughness, vroughness)) {
+        let cos_theta_i = wi[2];
+        // reflectance
+        let r = fresnel_dielectric_reflectance_rgb(eta, cos_theta_i);
+        // transmission
+        let t = [1. - r[0], 1. - r[1], 1. - r[2]];
+
+        let pr = r;
+        let pt = t;
+
+        let rdms = [
+            rng.random::<f32>(),
+            rng.random::<f32>(),
+            rng.random::<f32>(),
+        ];
+        //TODO: sample btdf or brdf
+    } else {
+        // TODO: roughness sampling
+    }
+    todo!();
+}
+
+pub fn fresnel_dielectric_reflectance_rgb(eta: &[f32; 3], mut cos_theta_i: f32) -> [f32; 3] {
+    cos_theta_i = cos_theta_i.clamp(-1., 1.);
+    let mut eta_local = *eta;
+    // potential filp
+    if cos_theta_i < 0. {
+        cos_theta_i = -cos_theta_i;
+        eta_local = [1. / eta[0], 1. / eta[1], 1. / eta[2]];
+    }
+
+    let sqr_sin_theta_i = (1. - cos_theta_i * cos_theta_i).sqrt();
+    let cos_theta_t: Vec<f32> = eta_local
+        .iter()
+        .map(|i_eta| {
+            let sqr_eta = i_eta * i_eta;
+            (1. - sqr_sin_theta_i / sqr_eta).sqrt()
+        })
+        .collect();
+
+    [
+        fresnel_dielectric_reflectance(eta_local[0], cos_theta_i, cos_theta_t[0]),
+        fresnel_dielectric_reflectance(eta_local[1], cos_theta_i, cos_theta_t[1]),
+        fresnel_dielectric_reflectance(eta_local[2], cos_theta_i, cos_theta_t[2]),
+    ]
+}
+
+// <https://pbr-book.org/4ed/Reflection_Models/Specular_Reflection_and_Transmission.html#FrDielectric >
+pub fn fresnel_dielectric_reflectance(mut eta: f32, mut cos_theta_i: f32, cos_theta_t: f32) -> f32 {
+    cos_theta_i = cos_theta_i.clamp(-1., 1.);
+    // potential filp
+    if cos_theta_i < 0. {
+        eta = 1. / eta;
+        cos_theta_i = -cos_theta_i;
+    }
+
+    let r_parl = (eta * cos_theta_i - cos_theta_t) / (eta * cos_theta_i + cos_theta_t);
+    let r_perp = (cos_theta_i - eta * cos_theta_t) / (cos_theta_i + eta * cos_theta_t);
+
+    (r_parl * r_parl + r_perp * r_perp) / 2.
 }
 
 pub fn sample_brdf<RNG>(

@@ -48,16 +48,27 @@ impl Camera {
     }
 }
 
+// material index, area light index, tri2vtx, vtx2xyz,normals,uvs
+type Trimesh3Data = (
+    usize,
+    Option<usize>,
+    Vec<usize>,
+    Vec<f32>,
+    Vec<f32>,
+    Vec<f32>,
+);
+
 #[allow(clippy::type_complexity)]
 pub fn trimesh3_from_shape_entity(
     shape_entity: &pbrt4::ShapeEntity,
     path_file: &str,
-) -> Option<(usize, Option<usize>, Vec<usize>, Vec<f32>, Vec<f32>)> {
+) -> Option<Trimesh3Data> {
     match &shape_entity.params {
         pbrt4::types::Shape::TriangleMesh {
             positions,
             indices,
             normals,
+            uvs,
             ..
         } => {
             let tri2vtx = indices.iter().map(|&v| v as usize).collect::<Vec<usize>>();
@@ -67,6 +78,7 @@ pub fn trimesh3_from_shape_entity(
                 tri2vtx,
                 positions.to_vec(),
                 normals.to_vec(),
+                uvs.to_vec(),
             ))
         }
         pbrt4::types::Shape::PlyMesh { filename } => {
@@ -105,12 +117,13 @@ pub fn trimesh3_from_shape_entity(
                     }
                 }
             }
-            // TODO: parse normals for .ply
+            //  TODO: parse normals and uvs for .ply
             Some((
                 shape_entity.material_index.unwrap(),
                 shape_entity.area_light_index,
                 tri2vtx,
                 vtx2xyz,
+                vec![],
                 vec![],
             ))
         }
@@ -136,7 +149,7 @@ pub fn spectrum_from_light_entity(area_light_entity: &pbrt4::types::AreaLight) -
     }
 }
 
-fn get_f32_array3_from_material_param(
+pub fn get_f32_array3_from_params(
     key: &str,
     dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
 ) -> Option<[f32; 3]> {
@@ -151,7 +164,7 @@ fn get_f32_array3_from_material_param(
     Some(res)
 }
 
-fn get_bool_from_material_param(
+fn get_bool_from_params(
     key: &str,
     dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
 ) -> Option<bool> {
@@ -161,7 +174,7 @@ fn get_bool_from_material_param(
     Some(res)
 }
 
-fn get_f32_from_material_param(
+pub fn get_f32_from_params(
     key: &str,
     dict_mp: &std::collections::HashMap<String, (pbrt4::param::ParamType, String, String)>,
 ) -> anyhow::Result<f32> {
@@ -212,12 +225,12 @@ pub fn parse_material(scene: &pbrt4::Scene) -> Vec<crate::material::Material> {
                 materials.push(crate::material::Material::Diff(diff));
             }
             "conductor" => {
-                let uroughness = get_f32_from_material_param("uroughness", &mat.params).unwrap();
-                let vroughness = get_f32_from_material_param("vroughness", &mat.params).unwrap();
-                let reflectance = get_f32_array3_from_material_param("reflectance", &mat.params)
+                let uroughness = get_f32_from_params("uroughness", &mat.params).unwrap();
+                let vroughness = get_f32_from_params("vroughness", &mat.params).unwrap();
+                let reflectance = get_f32_array3_from_params("reflectance", &mat.params)
                     .unwrap_or([1.0, 1.0, 1.0]);
-                let k = get_f32_array3_from_material_param("k", &mat.params).unwrap();
-                let eta = get_f32_array3_from_material_param("eta", &mat.params).unwrap();
+                let k = get_f32_array3_from_params("k", &mat.params).unwrap();
+                let eta = get_f32_array3_from_params("eta", &mat.params).unwrap();
                 let mat = crate::material::ConductorMaterial {
                     uroughness,
                     vroughness,
@@ -228,12 +241,11 @@ pub fn parse_material(scene: &pbrt4::Scene) -> Vec<crate::material::Material> {
                 materials.push(crate::material::Material::Cond(mat))
             }
             "coateddiffuse" => {
-                let uroughness = get_f32_from_material_param("uroughness", &mat.params).unwrap();
-                let vroughness = get_f32_from_material_param("vroughness", &mat.params).unwrap();
-                let reflectance = get_f32_array3_from_material_param("reflectance", &mat.params)
+                let uroughness = get_f32_from_params("uroughness", &mat.params).unwrap();
+                let vroughness = get_f32_from_params("vroughness", &mat.params).unwrap();
+                let reflectance = get_f32_array3_from_params("reflectance", &mat.params)
                     .unwrap_or([1.0, 1.0, 1.0]);
-                let remaproughness =
-                    get_bool_from_material_param("remaproughness", &mat.params).unwrap();
+                let remaproughness = get_bool_from_params("remaproughness", &mat.params).unwrap();
 
                 let coadiff = crate::material::CoatedDiffuse {
                     uroughness,
@@ -330,4 +342,31 @@ pub fn parse_shapes(scene: &pbrt4::Scene) -> Vec<ShapeEntity> {
         });
     }
     shape_entities
+}
+
+pub fn parse_texture(scene: &pbrt4::Scene) -> Vec<crate::textures::Texture> {
+    let mut textures = Vec::<crate::textures::Texture>::with_capacity(scene.textures.len());
+    for tex in scene.textures.iter() {
+        match tex.class.as_str() {
+            "checkerboard" => {
+                let tex1 = get_f32_array3_from_params("tex1", &tex.params).unwrap();
+                let tex2 = get_f32_array3_from_params("tex2", &tex.params).unwrap();
+                let uscale = get_f32_from_params("uscale", &tex.params).unwrap();
+                let vscale = get_f32_from_params("vscale", &tex.params).unwrap();
+
+                let checker = crate::textures::CheckerBoardTexture {
+                    uscale,
+                    vscale,
+                    tex1,
+                    tex2,
+                };
+                textures.push(crate::textures::Texture::Checkerboard(checker));
+            }
+            _ => {
+                dbg!(&tex.class);
+                panic!("Texture paser not support");
+            }
+        }
+    }
+    textures
 }

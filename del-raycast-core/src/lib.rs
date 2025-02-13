@@ -13,3 +13,4 @@ pub mod sampling;
 pub mod shape;
 pub mod silhouette;
 pub mod textures;
+pub mod layered_material;
