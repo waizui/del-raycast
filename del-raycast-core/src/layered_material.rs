@@ -1,5 +1,7 @@
 use crate::material::CoatedDiffuse;
 
+#[allow(unused_mut)]
+#[allow(unused_variables)]
 pub fn sample_brdf_coated_diffuse<RNG>(
     wo: &[f32; 3],
     nsamples: i32,
@@ -22,6 +24,8 @@ where
     todo!()
 }
 
+
+#[allow(unused_variables)]
 pub fn eval_brdf_coated_diffuse<RNG>(
     wi: &[f32; 3],
     wo: &[f32; 3],

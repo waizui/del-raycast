@@ -207,6 +207,8 @@ pub fn eval_brdf_rough_conductor(
         .element_wise_mult(reflectance)
 }
 
+
+#[allow(unused_variables)]
 pub fn sample_brdf_dielectric<RNG>(
     wi: &[f32; 3],
     reflectance: &[f32; 3],
