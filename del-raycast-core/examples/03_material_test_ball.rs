@@ -63,7 +63,7 @@ fn get_tri_uv(tri_i: usize, pos: &[f32; 3], shape: &Shape) -> [f32; 2] {
 
     let vertices = &shape.tri2vtx[tri_i..tri_i + 3];
 
-    let f: Vec<Vector3<f32>> = vertices
+    let f: Vec<[f32; 3]> = vertices
         .iter()
         .map(|&vert| {
             assert!(
@@ -71,16 +71,11 @@ fn get_tri_uv(tri_i: usize, pos: &[f32; 3], shape: &Shape) -> [f32; 2] {
                 "vertex index out of bounds"
             );
             let v = &shape.vtx2xyz[vert * 3..(vert * 3 + 3)];
-            Vector3::new(v[0], v[1], v[2])
+            [v[0], v[1], v[2]]
         })
         .collect();
 
-    let bary = del_geo_nalgebra::tri3::barycentric(
-        &f[0],
-        &f[1],
-        &f[2],
-        &Vector3::new(pos[0], pos[1], pos[2]),
-    );
+    let bary = del_geo_core::tri3::to_barycentric_coords(&f[0], &f[1], &f[2], pos);
 
     let vert_uvs: Vec<[f32; 2]> = vertices
         .iter()
