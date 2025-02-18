@@ -24,7 +24,6 @@ where
     todo!()
 }
 
-
 #[allow(unused_variables)]
 pub fn eval_brdf_coated_diffuse<RNG>(
     wi: &[f32; 3],

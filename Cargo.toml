@@ -3,8 +3,7 @@ members = [
     "del-raycast-core",
     "del-raycast-cudarc",
     "del-raycast-candle",
-    "examples-gl",
-    "examples-cudarc-gl"
+    "examples",
 ]
 exclude = ["del-raycast-cudarc-kernel"]
 resolver = "2"
