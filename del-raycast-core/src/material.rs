@@ -266,7 +266,7 @@ where
                 // https://pbr-book.org/4ed/Reflection_Models/Dielectric_BSDF#eq:transmitted-radiance-change
                 brdf /= eta * eta;
                 let pdf = pt / (pr + pt);
-                return Some((wt, [brdf; 3], pdf));
+                return Some((wt, [brdf; 3], pdf * pdf_spectral));
             }
             None
         }
