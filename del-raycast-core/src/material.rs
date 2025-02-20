@@ -241,7 +241,6 @@ where
     };
 
     let smooth = |x: f32, y: f32| x.max(y) < 1e-3;
-
     let debug = true;
     // specular
     if debug || eta == 1. || (smooth(uroughness, vroughness)) {
@@ -285,6 +284,13 @@ pub fn eval_brdf_dielectric(
     uroughness: f32,
     vroughness: f32,
 ) -> [f32; 3] {
+    let smooth = |x: f32, y: f32| x.max(y) < 1e-3;
+    let debug = true;
+    // specular
+    if debug || (smooth(uroughness, vroughness)) {
+        return [0.; 3];
+    }
+
     todo!()
 }
 
