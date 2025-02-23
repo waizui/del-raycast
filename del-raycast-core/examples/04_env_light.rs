@@ -41,9 +41,6 @@ fn main() -> anyhow::Result<()> {
     {
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
             let pix = array_mut_ref![pix, 0, 3];
-            use rand::Rng;
-            use rand::SeedableRng;
-            let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray_plus_z(
                 (i_pix % img_shape.0, i_pix / img_shape.0),
                 (0., 0.),
@@ -87,7 +84,6 @@ fn main() -> anyhow::Result<()> {
             }
         };
         use rayon::iter::IndexedParallelIterator;
-        use rayon::iter::IntoParallelRefMutIterator;
         use rayon::iter::ParallelIterator;
         use rayon::prelude::ParallelSliceMut;
         let mut img = vec![0f32; img_shape.0 * img_shape.1 * 3];

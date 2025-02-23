@@ -1,7 +1,3 @@
-use winit::dpi::PhysicalSize;
-use winit::event_loop::EventLoop;
-use winit::window::Window;
-
 #[cfg(feature = "cuda")]
 use del_cudarc::cudarc;
 
@@ -24,7 +20,7 @@ struct Content {
 }
 
 #[cfg(feature = "cuda")]
-impl del_gl_winit_glutin::app3::Content for Content {
+impl Content {
     fn new() -> Self {
         let (tri2vtx, vtx2xyz, vtx2uv) = {
             let mut obj = del_msh_core::io_obj::WavefrontObj::<usize, f32>::new();
@@ -67,7 +63,10 @@ impl del_gl_winit_glutin::app3::Content for Content {
             tex_shape,
         }
     }
+}
 
+#[cfg(feature = "cuda")]
+impl del_gl_winit_glutin::viewer3d_for_image_generator::ImageGeneratorFrom3dCamPose for Content {
     fn compute_image(
         &mut self,
         img_shape: (usize, usize),
@@ -141,22 +140,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_alpha_size(8)
         .with_transparency(cfg!(cgl_backend));
     let display_builder = {
-        let window_attributes = Window::default_attributes()
+        let window_attributes = winit::window::Window::default_attributes()
             .with_transparent(false)
             .with_title("01_texture_fullscrn")
-            .with_inner_size(PhysicalSize {
+            .with_inner_size(winit::dpi::PhysicalSize {
                 width: 600,
                 height: 600,
             });
         glutin_winit::DisplayBuilder::new().with_window_attributes(Some(window_attributes))
     };
-    let mut app = del_gl_winit_glutin::app3::MyApp::<Content>::new(template, display_builder);
-    let event_loop = EventLoop::new().unwrap();
+    let mut app = del_gl_winit_glutin::viewer3d_for_image_generator::Viewer3d::new(
+        template,
+        display_builder,
+        Box::new(Content::new()),
+    );
+    let event_loop = winit::event_loop::EventLoop::new().unwrap();
     event_loop.run_app(&mut app)?;
     app.appi.exit_state
 }
 
 #[cfg(not(feature = "cuda"))]
 fn main() {
-    println!("this example need features cuda: --features cuda");
+    println!("this example need the cuda features as \"--features cuda\"");
 }

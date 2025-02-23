@@ -11,7 +11,7 @@ impl Ray {
     }
 }
 
-fn radiance(ray: &Ray, vtx2xyz: &[f64], rng: &mut rand::rngs::ThreadRng) -> [f64; 3] {
+fn radiance(ray: &Ray, vtx2xyz: &[f64], _rng: &mut rand::rngs::ThreadRng) -> [f64; 3] {
     use del_geo_core::mat3_col_major::Mat3ColMajor;
     use del_geo_core::vec3::Vec3;
     let floor = ([0., 0., 0.], [0., 1., 0.]);
@@ -67,8 +67,7 @@ fn radiance(ray: &Ray, vtx2xyz: &[f64], rng: &mut rand::rngs::ThreadRng) -> [f64
 
 fn main() {
     let vtx2xyz: Vec<f64> = vec![0., 30., 0., 30., 1., 0., 0., 60., 0., -30., 1.0, 0.];
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let cam =
         del_raycast_core::cam3::Camera3::new(1024, 768, [50., 52., 295.6], [0., -0.042612, -1.]);
     let mut img = Vec::<image::Rgb<f32>>::new();

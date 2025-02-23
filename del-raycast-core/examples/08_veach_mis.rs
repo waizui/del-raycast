@@ -273,7 +273,6 @@ impl del_raycast_core::monte_carlo_integrator::Scene for MyScene {
         i_shape_entity_observe: usize,
         rng: &mut RNG,
     ) -> Option<([f32; 3], f32, [f32; 3])> {
-        use del_geo_core::vec3;
         let al2mag = self.build_area_light_importance_heuristic(pos_observe);
         let (ial, _rand1, pdf0) = del_msh_core::cumsum::sample(&al2mag, rng.random::<f32>());
         let ise = self.area_light_geometries[ial].i_shape_entity;
