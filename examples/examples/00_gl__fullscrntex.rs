@@ -12,7 +12,7 @@ pub struct Content {
     pub tex_data: Vec<f32>,
 }
 
-impl del_gl_winit_glutin::app3::Content for Content {
+impl Content {
     fn new() -> Self {
         let (tri2vtx, vtx2xyz, vtx2uv) = {
             let mut obj = del_msh_core::io_obj::WavefrontObj::<usize, f32>::new();
@@ -41,7 +41,9 @@ impl del_gl_winit_glutin::app3::Content for Content {
             tex_shape: tex_shape,
         }
     }
+}
 
+impl del_gl_winit_glutin::viewer3d_for_image_generator::ImageGeneratorFrom3dCamPose for Content {
     fn compute_image(
         &mut self,
         img_shape: (usize, usize),
@@ -95,7 +97,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         glutin_winit::DisplayBuilder::new().with_window_attributes(Some(window_attributes))
     };
-    let mut app = del_gl_winit_glutin::app3::MyApp::<Content>::new(template, display_builder);
+    let mut app = del_gl_winit_glutin::viewer3d_for_image_generator::Viewer3d::new(
+        template,
+        display_builder,
+        Box::new(Content::new()),
+    );
     let event_loop = EventLoop::new().unwrap();
     event_loop.run_app(&mut app)?;
     app.appi.exit_state

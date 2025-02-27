@@ -136,11 +136,11 @@ pub fn backward_wrt_vtx2xyz(
                 let (_dlc0, _dlc1, dldq1, dldq0) =
                     del_geo_core::edge2::dldw_intersection_edge2(&c0, &c1, &q1, &q0, dldr0, 0.0);
                 let dqdp0 = mat4_col_major::jacobian_transform(transform_world2pix, p0);
-                let dqdp1 = mat4_col_major::jacobian_transform(transform_world2pix, p0);
+                let dqdp1 = mat4_col_major::jacobian_transform(transform_world2pix, p1);
                 let dqdp0 = mat3_col_major::to_mat2x3_col_major_xy(&dqdp0);
                 let dqdp1 = mat3_col_major::to_mat2x3_col_major_xy(&dqdp1);
-                let dldp0 = mat2x3_col_major::mult_transpose_vec3(&dqdp0, &dldq0);
-                let dldp1 = mat2x3_col_major::mult_transpose_vec3(&dqdp1, &dldq1);
+                let dldp0 = mat2x3_col_major::vec3_from_mult_transpose_vec2(&dqdp0, &dldq0);
+                let dldp1 = mat2x3_col_major::vec3_from_mult_transpose_vec2(&dqdp1, &dldq1);
                 use del_geo_core::vec3::Vec3;
                 arrayref::array_mut_ref![dldw_vtx2xyz, (i0_vtx as usize) * 3, 3]
                     .add_in_place(&dldp0);

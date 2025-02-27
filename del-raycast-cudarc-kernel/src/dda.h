@@ -2,7 +2,7 @@
 #include <cuda/std/array>
 #include <optional>
 
-  __device__
+
 class DDA {
 public:
   float x, y;

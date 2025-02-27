@@ -5,6 +5,120 @@ use candle_core::{CpuStorage, Layout, Shape};
 use candle_core::{DType, Device, Tensor, Var};
 use std::ops::Deref;
 
+pub struct BackwardAntiAliasSilhouette {
+    edge2vtx_contour: Tensor,
+    transform_world2pix: Tensor,
+    pix2tri: Tensor,
+}
+
+impl candle_core::InplaceOp3 for BackwardAntiAliasSilhouette {
+    fn name(&self) -> &'static str {
+        "BackwardAntiAliasSilhouette"
+    }
+    fn cpu_fwd(
+        &self,
+        dldw_vtx2xyz: &mut CpuStorage,
+        _l_dldw_vtx2xyz: &Layout,
+        vtx2xyz: &CpuStorage,
+        _l_vtx2xyz: &Layout,
+        dldw_pix2occl: &CpuStorage,
+        l_dldw_pix2occul: &Layout,
+    ) -> candle_core::Result<()> {
+        assert!(self.pix2tri.device().is_cpu());
+        assert!(self.transform_world2pix.device().is_cpu());
+        assert!(self.edge2vtx_contour.device().is_cpu());
+        let dldw_vtx2xyz = match dldw_vtx2xyz {
+            CpuStorage::F32(cpu_storage) => cpu_storage,
+            _ => panic!(),
+        };
+        let dldw_pix2occl = dldw_pix2occl.as_slice::<f32>()?;
+        get_cpu_slice_and_storage_from_tensor!(
+            edge2vtx_contour,
+            _s_edge2vtx_contour,
+            self.edge2vtx_contour,
+            u32
+        );
+        let img_shape = (l_dldw_pix2occul.dim(1)?, l_dldw_pix2occul.dim(0)?);
+        get_cpu_slice_and_storage_from_tensor!(
+            transform_world2pix,
+            _s_transform_world2pix,
+            self.transform_world2pix,
+            f32
+        );
+        let transform_world2pix = arrayref::array_ref![transform_world2pix, 0, 16];
+        get_cpu_slice_and_storage_from_tensor!(pix2tri, _s_pix2tri, self.pix2tri, u32);
+        del_raycast_core::silhouette::backward_wrt_vtx2xyz(
+            edge2vtx_contour,
+            vtx2xyz.as_slice()?,
+            dldw_vtx2xyz,
+            transform_world2pix,
+            img_shape,
+            dldw_pix2occl,
+            pix2tri,
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "cuda")]
+    fn cuda_fwd(
+        &self,
+        dldw_vtx2xyz: &mut CudaStorage,
+        _l_dldw_vtx2xyz: &Layout,
+        vtx2xyz: &CudaStorage,
+        _l_vtx2xyz: &Layout,
+        dldw_pix2occul: &CudaStorage,
+        l_dldw_pix2occul: &Layout,
+    ) -> candle_core::Result<()> {
+        use candle_core::cuda_backend::CudaStorageSlice;
+        use candle_core::cuda_backend::WrapErr;
+        // let cuda_device = dldw_vtx2xyz.device();
+        assert!(self.edge2vtx_contour.device().is_cuda());
+        assert!(self.transform_world2pix.device().is_cuda());
+        assert!(self.pix2tri.device().is_cuda());
+        get_cuda_slice_and_device_from_storage_f32!(vtx2xyz, _dev_vtx2xyy, vtx2xyz);
+        get_cuda_slice_and_device_from_storage_f32!(
+            dldw_pix2occl,
+            _dev_dldw_pix2occl,
+            dldw_pix2occul
+        );
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            edge2vtx_contour,
+            s_edge2vtx_contour,
+            _l_edge2vtx_contour,
+            self.edge2vtx_contour,
+            u32
+        );
+        let img_shape = (l_dldw_pix2occul.dim(1)?, l_dldw_pix2occul.dim(0)?);
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            transform_world2pix,
+            s_transform_world2pix,
+            _l_transform_world2pix,
+            self.transform_world2pix,
+            f32
+        );
+        get_cuda_slice_and_storage_and_layout_from_tensor!(
+            pix2tri,
+            s_pix2tri,
+            _l_pix2tri,
+            self.pix2tri,
+            u32
+        );
+        get_cuda_slice_and_device_from_storage_f32!(dldw_vtx2xyz, dev_dldw_vtx2xyz, dldw_vtx2xyz);
+        del_raycast_cudarc::silhouette::backward_wrt_vtx2xyz(
+            dev_dldw_vtx2xyz,
+            edge2vtx_contour,
+            vtx2xyz,
+            &mut dldw_vtx2xyz.slice_mut(..),
+            transform_world2pix,
+            img_shape,
+            dldw_pix2occl,
+            pix2tri,
+        )
+        .w()?;
+        Ok(())
+    }
+}
+
 pub struct AntiAliasSilhouette {
     pix2tri: Tensor,
     edge2vtx_contour: Tensor,
@@ -65,7 +179,7 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
     fn cuda_fwd(
         &self,
         vtx2xyz: &CudaStorage,
-        l_vtx2xyz: &Layout,
+        _l_vtx2xyz: &Layout,
     ) -> candle_core::Result<(CudaStorage, Shape)> {
         use candle_core::cuda_backend::WrapErr;
         let device = &vtx2xyz.device;
@@ -73,7 +187,7 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
         get_cuda_slice_and_storage_and_layout_from_tensor!(
             pix2tri,
             s_pix2tri,
-            l_pix2tril,
+            _l_pix2tril,
             self.pix2tri,
             u32
         );
@@ -81,7 +195,7 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
         get_cuda_slice_and_storage_and_layout_from_tensor!(
             edge2vtx_contour,
             s_edge2vtx_contour,
-            l_edge2vtx_contour,
+            _l_edge2vtx_contour,
             self.edge2vtx_contour,
             u32
         );
@@ -89,7 +203,7 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
         get_cuda_slice_and_storage_and_layout_from_tensor!(
             transform_world2pix,
             s_transform_world2pix,
-            l_transform_world2pix,
+            _l_transform_world2pix,
             self.transform_world2pix,
             f32
         );
@@ -117,39 +231,15 @@ impl candle_core::CustomOp1 for AntiAliasSilhouette {
         pix2occl: &Tensor,
         dldw_pix2occl: &Tensor,
     ) -> candle_core::Result<Option<Tensor>> {
-        assert!(vtx2xyz.device().same_device(&Device::Cpu));
         assert_eq!(pix2occl.shape(), dldw_pix2occl.shape());
-        let num_vtx = vtx2xyz.dim(0)?;
-        get_cpu_slice_and_storage_from_tensor!(vtx2xyz, _s_vtx2xyz, vtx2xyz, f32);
-        get_cpu_slice_and_storage_from_tensor!(dldw_pix2occl, _s_dldw_pix2occl, dldw_pix2occl, f32);
-        get_cpu_slice_and_storage_from_tensor!(
-            edge2vtx_contour,
-            _s_edge2vtx_contour,
-            self.edge2vtx_contour,
-            u32
-        );
-        let img_shape = (pix2occl.dim(1)?, pix2occl.dim(0)?);
-        let mut dldw_vtx2xyz = vec![0f32; num_vtx * 3];
-        get_cpu_slice_and_storage_from_tensor!(
-            transform_world2pix,
-            _s_transform_world2pix,
-            self.transform_world2pix,
-            f32
-        );
-        let transform_world2pix = arrayref::array_ref![transform_world2pix, 0, 16];
-        get_cpu_slice_and_storage_from_tensor!(pix2tri, _s_pix2tri, self.pix2tri, u32);
-        del_raycast_core::silhouette::backward_wrt_vtx2xyz(
-            edge2vtx_contour,
-            vtx2xyz,
-            &mut dldw_vtx2xyz,
-            transform_world2pix,
-            img_shape,
-            dldw_pix2occl,
-            pix2tri,
-        );
-        Ok(Some(
-            Tensor::from_vec(dldw_vtx2xyz, (num_vtx, 3), &Device::Cpu).unwrap(),
-        ))
+        let dldw_vtx2xyz = Tensor::zeros_like(vtx2xyz)?;
+        let op = BackwardAntiAliasSilhouette {
+            edge2vtx_contour: self.edge2vtx_contour.clone(),
+            transform_world2pix: self.transform_world2pix.clone(),
+            pix2tri: self.pix2tri.clone(),
+        };
+        dldw_vtx2xyz.inplace_op3(vtx2xyz, dldw_pix2occl, &op)?;
+        Ok(Some(dldw_vtx2xyz))
     }
 }
 
@@ -271,11 +361,18 @@ fn test_cpu() -> anyhow::Result<()> {
         let grads = loss.backward()?;
         #[cfg(feature = "cuda")]
         if iter == 0 {
+            let dldw_vtx2xyz_cpu = grads
+                .get(&vtx2xyz)
+                .unwrap()
+                .flatten_all()?
+                .to_vec1::<f32>()?;
+            dbg!("hoge");
             let device = Device::cuda_if_available(0)?;
             let tri2vtx = tri2vtx.to_device(&device)?;
-            let vtx2xyz = vtx2xyz.to_device(&device)?;
+            let vtx2xyz = Var::from_tensor(&vtx2xyz.to_device(&device)?)?;
             let edge2vtx = edge2vtx.to_device(&device)?;
             let edge2tri = edge2tri.to_device(&device)?;
+            let img_trg = img_trg.to_device(&device)?;
             let transform_ndc2world = transform_ndc2world.to_device(&device)?;
             let transform_world2ndc = transform_world2ndc.to_device(&device)?;
             let transform_world2pix = transform_world2pix.to_device(&device)?;
@@ -320,25 +417,37 @@ fn test_cpu() -> anyhow::Result<()> {
                 transform_world2pix: transform_world2pix.clone(),
             };
             let img = vtx2xyz.apply_op1(layer_silhouette)?;
+            let img_gpu = img.flatten_all()?.to_vec1::<f32>()?;
             del_canvas::write_png_from_float_image_grayscale(
                 "../target/del-raycast-candle__silhouette_cuda.png",
                 img_shape,
-                &img.flatten_all()?.to_vec1::<f32>()?,
+                &img_gpu,
             )?;
-            let img_gpu = img.flatten_all()?.to_vec1::<f32>()?;
             img_cpu.iter().zip(img_gpu.iter()).for_each(|(&a, &b)| {
                 assert!((a - b).abs() < 1.0e-5, "{} {}", a, b);
                 // println!("{} {}", a, b);
             });
+            let loss = img.sub(&img_trg)?.sqr()?.sum_all()?;
+            println!("loss: {}", loss.to_vec0::<f32>()?);
+            let grads = loss.backward()?;
+            let dldw_vtx2xyz = grads.get(&vtx2xyz).unwrap();
+            let dldw_vtx2xyz_gpu = dldw_vtx2xyz.flatten_all()?.to_vec1::<f32>()?;
+            dldw_vtx2xyz_cpu
+                .iter()
+                .zip(dldw_vtx2xyz_gpu.iter())
+                .for_each(|(&a, &b)| {
+                    assert!((a - b).abs() < 1.0e-3, "{} {}", a, b);
+                    //println!("{} {}", a, b);
+                });
         }
         {
-            let dldw_vtx2xyz = grads.get(&vtx2xyz).unwrap();
             let layer = del_fem_candle::laplacian_smoothing::LaplacianSmoothing {
                 vtx2idx: vtx2idx.clone(),
                 idx2vtx: idx2vtx.clone(),
                 lambda: 30.0,
                 num_iter: 200,
             };
+            let dldw_vtx2xyz = grads.get(&vtx2xyz).unwrap();
             let grad = dldw_vtx2xyz.apply_op1_no_bwd(&layer)?;
             let grad = (grad * 0.003)?;
             vtx2xyz.set(&vtx2xyz.sub(&(grad))?)?;

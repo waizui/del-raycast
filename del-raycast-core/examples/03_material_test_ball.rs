@@ -59,8 +59,6 @@ fn intersect_bvh(
 
 // get uv coordinates of position of a triangle tri_i
 fn get_tri_uv(tri_i: usize, pos: &[f32; 3], shape: &Shape) -> [f32; 2] {
-    use nalgebra::Vector3;
-
     let vertices = &shape.tri2vtx[tri_i..tri_i + 3];
 
     let f: Vec<[f32; 3]> = vertices

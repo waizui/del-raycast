@@ -77,7 +77,7 @@ impl MyScene {
         // sampling light on the unit sphere around `pos_observe`
         let Some((uvec_obs2light, pos_light, pdf_usphere)) = self.shape_entities
             [self.i_shape_entity_light]
-            .sample_visible(pos_observe, &[rng.gen(), rng.gen()])
+            .sample_visible(pos_observe, &[rng.random(), rng.random()])
         else {
             return None;
         };
@@ -249,8 +249,8 @@ fn render_and_save_image_and_compute_error(
             let (ray0_org, ray0_dir) = camera.ray(
                 i_pix,
                 [
-                    del_raycast_core::sampling::tent(rng.gen::<f32>()),
-                    del_raycast_core::sampling::tent(rng.gen::<f32>()),
+                    del_raycast_core::sampling::tent(rng.random::<f32>()),
+                    del_raycast_core::sampling::tent(rng.random::<f32>()),
                 ],
             );
             let rad = match integration_type {

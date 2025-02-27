@@ -41,24 +41,21 @@ del-raycast-cudarc = {  path = "del-raycast-cudarc" }
 del-raycast-cudarc-kernel = {  path = "del-raycast-cudarc-kernel" }
 
 # for development
-# pbrt4 = { path = "../pbrt4" }
 # del-geo-core = { path = "../del-geo/del-geo-core" }
 # del-msh-core = { path = "../del-msh/del-msh-core" }
 # del-msh-candle = { path = "../del-msh/del-msh-candle" }
-# del-canvas = {path = "../del-canvas"}
-# del-gl-core = { path = "../del-gl/del-gl-core"}
-# del-gl-winit-glutin = { path = "../del-gl/del-gl-winit-glutin"}
+# del-msh-cudarc = {path="../del-msh/del-msh-cudarc"}
 # del-fem-core = {path = "../del-fem/del-fem-core"}
 # del-fem-ls = {path = "../del-fem/del-fem-ls"}
 # del-fem-candle = { path = "../del-fem/del-fem-candle" }
+# del-canvas = {path = "../del-canvas"}
+# del-gl-core = { path = "../del-gl/del-gl-core"}
+# del-gl-winit-glutin = { path = "../del-gl/del-gl-winit-glutin"}
 # del-cudarc = {path="../del-cudarc"}
-# del-msh-cudarc = {path="../del-msh/del-msh-cudarc"}
+# pbrt4 = { path = "../pbrt4" }
 # candle-core = { git="https://github.com/huggingface/candle.git" }
 
 # for git push
-pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }
-del-gl-core = {git = "https://github.com/nobuyuki83/del-gl.git"}
-del-gl-winit-glutin = {git = "https://github.com/nobuyuki83/del-gl.git"}
 del-geo-core = { git = "https://github.com/nobuyuki83/del-geo.git"}
 del-msh-core = { git = "https://github.com/nobuyuki83/del-msh.git" }
 del-msh-cudarc = { git = "https://github.com/nobuyuki83/del-msh.git" }
@@ -67,7 +64,10 @@ del-fem-ls = {git="https://github.com/nobuyuki83/del-fem.git"}
 del-fem-core = {git="https://github.com/nobuyuki83/del-fem.git"}
 del-fem-candle = {git="https://github.com/nobuyuki83/del-fem.git"}
 del-canvas = {git="https://github.com/nobuyuki83/del-canvas.git"}
+pbrt4 = { git = "https://github.com/nobuyuki83/pbrt4.git" }
 candle-core = { git="https://github.com/huggingface/candle.git" }
+del-gl-core = {git = "https://github.com/nobuyuki83/del-gl.git"}
+del-gl-winit-glutin = {git = "https://github.com/nobuyuki83/del-gl.git"}
 
 # for deploy
 # del-geo-core = "=0.1.33"
