@@ -1,8 +1,6 @@
+use del_geo_core::vec3::Vec3;
 use del_msh_core::search_bvh3::TriMeshWithBvh;
-use del_raycast_core::{
-    parse_pbrt,
-    textures::{CheckerBoardTexture, Texture},
-};
+use del_raycast_core::textures::Texture;
 
 struct Shape {
     vtx2xyz: Vec<f32>,
@@ -272,8 +270,6 @@ fn main() -> anyhow::Result<()> {
 
 fn dielectric_sphere() {
     use arrayref::array_mut_ref;
-    use del_geo_core::mat4_col_major;
-    use del_raycast_core::material;
     let res_path = "target/test_dielectric.hdr";
     let env_map_path = "asset/material-testball/textures/envmap.pfm";
     let (tex_shape, tex_data) = {
@@ -303,10 +299,12 @@ fn dielectric_sphere() {
         m.as_slice().try_into().unwrap()
     };
     let sphere_cntr = [0.15, 0.50, 0.16];
-    let ior = 1.5; // index of refraction
     let img_shape = (640, 360);
     {
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
+            use rand::Rng;
+            use rand::SeedableRng;
+            let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let pix = array_mut_ref![pix, 0, 3];
             let (ray_org, ray_dir) = del_raycast_core::cam_pbrt::cast_ray_plus_z(
                 (i_pix % img_shape.0, i_pix / img_shape.0),
@@ -315,60 +313,25 @@ fn dielectric_sphere() {
                 camera_fov,
                 transform_camlcl2world,
             );
-            let t = del_geo_core::sphere::intersection_ray(0.7, &sphere_cntr, &ray_org, &ray_dir);
-            if let Some(t) = t {
-                use del_geo_core::vec3;
-                let pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
-                let nrm = vec3::sub(&pos, &sphere_cntr);
-                let hit_nrm = vec3::normalize(&nrm);
-
-                let dir_inc = {
-                    let local_nrm =
-                        mat4_col_major::transform_direction(&transform_world2camlcl, &hit_nrm);
-                    let local_dir =
-                        mat4_col_major::transform_homogeneous(&transform_world2camlcl, &ray_dir)
-                            .unwrap();
-                    if let Some((out, eta)) = material::refract(
-                        &vec3::normalize(&local_dir),
-                        &vec3::normalize(&local_nrm),
-                        1. / ior,
-                    ) {
-                        mat4_col_major::transform_direction(
-                            &transform_camlcl2world,
-                            &vec3::normalize(&out),
-                        )
-                    } else {
-                        let refl = vec3::mirror_reflection(&ray_dir, &hit_nrm);
-                        vec3::normalize(&refl)
-                    }
-                };
-
-                let env =
-                    del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &dir_inc)
-                        .unwrap();
-                let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
-                *pix = del_canvas::texture::nearest_integer_center::<3>(
-                    &[
-                        tex_coord[0] * tex_shape.0 as f32,
-                        tex_coord[1] * tex_shape.1 as f32,
-                    ],
-                    &tex_shape,
-                    &tex_data,
-                );
-            } else {
-                let nrm = del_geo_core::vec3::normalize(&ray_dir);
-                let env = del_geo_core::mat4_col_major::transform_homogeneous(&transform_env, &nrm)
-                    .unwrap();
-                let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
-                *pix = del_canvas::texture::nearest_integer_center::<3>(
-                    &[
-                        tex_coord[0] * tex_shape.0 as f32,
-                        tex_coord[1] * tex_shape.1 as f32,
-                    ],
-                    &tex_shape,
-                    &tex_data,
-                );
+            let transforms = (
+                &transform_world2camlcl,
+                &transform_world2camlcl,
+                &transform_env,
+            );
+            let tex_info = (&tex_shape, &tex_data);
+            let nsamples = 4;
+            let mut rad = [0.; 3];
+            for _i_sample in 0..nsamples {
+                rad.add_in_place(&pt_dielectric(
+                    &sphere_cntr,
+                    &ray_dir,
+                    &ray_org,
+                    transforms,
+                    tex_info,
+                    &mut rng,
+                ));
             }
+            *pix = rad.scale(1. / nsamples as f32);
         };
         use rayon::iter::IndexedParallelIterator;
         use rayon::iter::ParallelIterator;
@@ -379,4 +342,104 @@ fn dielectric_sphere() {
             .for_each(|(i_pix, pix)| shoot_ray(i_pix, pix));
         let _ = del_canvas::write_hdr_file(res_path, img_shape, &img);
     }
+}
+
+fn pt_dielectric<RNG>(
+    sphere_cntr: &[f32; 3],
+    ray_dir_ini: &[f32; 3],
+    ray_org_ini: &[f32; 3],
+    transforms: (&[f32; 16], &[f32; 16], &[f32; 16]),
+    tex_info: (&(usize, usize), &Vec<f32>),
+    rng: &mut RNG,
+) -> [f32; 3]
+where
+    RNG: rand::Rng,
+{
+    use del_geo_core::mat4_col_major;
+    use del_raycast_core::material;
+
+    let max_depth = 65;
+    let w2c = transforms.0;
+    let c2w = transforms.1;
+    let transform_env = transforms.2;
+    let tex_shape = tex_info.0;
+    let tex_data = tex_info.1;
+    let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
+    let mut ray_dir: [f32; 3] = ray_dir_ini.to_owned();
+
+    let ior = 1.5; // index of refraction
+
+    let mut rad_out = [0.; 3];
+    let mut throughput = [1.; 3];
+
+    for i_depth in 0..max_depth {
+        if let Some(t) =
+            del_geo_core::sphere::intersection_ray(0.7, sphere_cntr, &ray_org, &ray_dir)
+        {
+            use del_geo_core::vec3;
+            let pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
+            let nrm = vec3::sub(&pos, sphere_cntr);
+            let hit_nrm = vec3::normalize(&nrm);
+
+            let dir_inc_local = {
+                let local_nrm = mat4_col_major::transform_direction(w2c, &hit_nrm);
+                let local_dir = mat4_col_major::transform_homogeneous(w2c, &ray_dir).unwrap();
+                if let Some((out, _eta)) = material::refract(
+                    &vec3::normalize(&local_dir),
+                    &vec3::normalize(&local_nrm),
+                    1. / ior,
+                ) {
+                    vec3::normalize(&out)
+                } else {
+                    let refl = vec3::mirror_reflection(&ray_dir, &hit_nrm);
+                    mat4_col_major::transform_direction(w2c, &vec3::normalize(&refl))
+                }
+            };
+
+            if let Some((wi, brdf, pdf)) = material::sample_brdf_dielectric(
+                &dir_inc_local,
+                &[0.243117, 0.059106, 0.000849],
+                &[1. / ior; 3],
+                1e-4,
+                1e-4,
+                rng,
+            ) {
+                let pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
+                let cos_hit = wi.dot(&hit_nrm);
+                throughput = throughput.element_wise_mult(&brdf.scale(cos_hit / pdf));
+                // russian roulette
+                let &russian_roulette_prob = throughput
+                    .iter()
+                    .max_by(|&a, &b| a.partial_cmp(b).unwrap())
+                    .unwrap();
+                if rng.random::<f32>() < russian_roulette_prob {
+                    throughput = vec3::scale(&throughput, 1.0 / russian_roulette_prob);
+                } else {
+                    break; // terminate ray
+                }
+
+                // TODO: convert to world space
+                ray_dir = wi;
+                ray_org = pos;
+            } else {
+                break; //TODO: internal reflection
+            };
+        } else {
+            let nrm = del_geo_core::vec3::normalize(&ray_dir);
+            let env =
+                del_geo_core::mat4_col_major::transform_homogeneous(transform_env, &nrm).unwrap();
+            let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
+            let rad = del_canvas::texture::nearest_integer_center::<3>(
+                &[
+                    tex_coord[0] * tex_shape.0 as f32,
+                    tex_coord[1] * tex_shape.1 as f32,
+                ],
+                tex_shape,
+                tex_data,
+            );
+            rad_out.add_in_place(&rad);
+            break; //TODO: boost??
+        }
+    }
+    rad_out.element_wise_mult(&throughput)
 }

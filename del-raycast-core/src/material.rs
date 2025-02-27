@@ -267,7 +267,7 @@ where
                 let pdf = pt / (pr + pt);
                 return Some((wt, [brdf; 3], pdf * pdf_spectral));
             }
-            None
+            None // can not be refracted
         }
     } else {
         // TODO: roughness sampling
