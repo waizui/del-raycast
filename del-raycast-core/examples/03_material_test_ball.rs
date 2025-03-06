@@ -270,6 +270,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// render a sphere with dielectric material
 fn dielectric_sphere() {
     use arrayref::array_mut_ref;
     use del_geo_core::vec3::Vec3;
@@ -295,6 +296,7 @@ fn dielectric_sphere() {
     let transform_env = [
         -0.386527, 0., 0.922278, 0., -0.922278, 0., -0.386527, 0., 0., 1., 0., 0., 0., 0., 0., 1.,
     ];
+
     let transform_env: [f32; 16] = {
         let m = nalgebra::Matrix4::<f32>::from_column_slice(&transform_env);
         let m = m.try_inverse().unwrap();
@@ -374,7 +376,9 @@ where
     let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
     let mut ray_dir: [f32; 3] = ray_dir_ini.to_owned();
 
-    let mut ior = 1.5; // index of refraction
+    let mut ior = 1.5; // index of refraction of glass
+    let uroughness = 1e-4; // small value <1e-3 for smooth suface
+    let vroughness = 1e-4;
 
     let mut rad_out = [0.; 3];
     let mut throughput = [1.; 3];
@@ -405,6 +409,7 @@ where
         let hit_nrm = if entering {
             hit_nrm
         } else {
+            //ray exiting sphere, normal point to sphere's center
             hit_nrm.scale(-1.0)
         };
 
@@ -414,8 +419,8 @@ where
             &wo,
             &[0.243117, 0.059106, 0.000849],
             &[ior; 3],
-            1e-4,
-            1e-4,
+            uroughness,
+            vroughness,
             rng,
         ) {
             let cos_hit = wi.dot(&hit_nrm).abs();
@@ -437,7 +442,7 @@ where
             ray_dir = wi;
             ray_org = vec3::axpy(1e-4, &wi, &hit_pos); //offset
         } else {
-            //
+            // internal reflection
             let reflected = vec3::mirror_reflection(&ray_dir, &hit_nrm);
             ray_dir = reflected;
             ray_org = vec3::axpy(1e-4, &reflected, &hit_pos);
@@ -446,7 +451,7 @@ where
     rad_out
 }
 
-/// get hit position and normal(point to origin if ray is exiting sphere)
+/// get hit position and normal
 fn intersect_sphere_with_normal(
     radius: f32,
     sphere_cntr: &[f32; 3],

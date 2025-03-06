@@ -241,9 +241,8 @@ where
     };
 
     let smooth = |x: f32, y: f32| x.max(y) < 1e-3;
-    let debug = true;
     // specular
-    if debug || eta == 1. || (smooth(uroughness, vroughness)) {
+    if eta == 1. || (smooth(uroughness, vroughness)) {
         let cos_theta_i = wo[2];
         let r = fresnel_dielectric_reflectance(eta, cos_theta_i);
         // transmission
