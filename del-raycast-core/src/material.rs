@@ -209,7 +209,7 @@ pub fn eval_brdf_rough_conductor(
 
 #[allow(unused_variables)]
 pub fn sample_brdf_dielectric<RNG>(
-    wi: &[f32; 3],
+    wo: &[f32; 3],
     reflectance: &[f32; 3],
     etas: &[f32; 3],
     uroughness: f32,
@@ -244,7 +244,7 @@ where
     let debug = true;
     // specular
     if debug || eta == 1. || (smooth(uroughness, vroughness)) {
-        let cos_theta_i = wi[2];
+        let cos_theta_i = wo[2];
         let r = fresnel_dielectric_reflectance(eta, cos_theta_i);
         // transmission
         let t = 1. - r;
@@ -255,12 +255,12 @@ where
         let rdm = rng.random::<f32>();
 
         if rdm < (pr / (pr + pt)) {
-            let wo = [-wi[0], -wi[1], wi[2]];
+            let wo = [-wo[0], -wo[1], wo[2]];
             let brdf = r / cos_theta_i.abs(); // perfect specular brdf
             let pdf = pr / (pr + pt);
             Some((wo, [brdf; 3], pdf * pdf_spectral))
         } else {
-            if let Some((wt, eta)) = refract(wi, &[0., 0., 1.], eta) {
+            if let Some((wt, eta)) = refract(wo, &[0., 0., 1.], eta) {
                 let mut brdf = t / cos_theta_i.abs();
                 // https://pbr-book.org/4ed/Reflection_Models/Dielectric_BSDF#eq:transmitted-radiance-change
                 brdf /= eta * eta;
