@@ -1,3 +1,6 @@
+use del_geo_core::mat4_col_major;
+use del_geo_core::vec3;
+use del_geo_core::vec3::Vec3;
 use del_msh_core::search_bvh3::TriMeshWithBvh;
 use del_raycast_core::textures::Texture;
 
@@ -312,7 +315,7 @@ fn dielectric_sphere() {
                 &transform_env,
             );
             let tex_info = (&tex_shape, &tex_data);
-            let nsamples = 32;
+            let nsamples = 64;
             let mut rad = [0.; 3];
             for _i_sample in 0..nsamples {
                 let dxdy = (
@@ -360,9 +363,6 @@ fn pt_dielectric<RNG>(
 where
     RNG: rand::Rng,
 {
-    use del_geo_core::mat4_col_major;
-    use del_geo_core::vec3;
-    use del_geo_core::vec3::Vec3;
     use del_raycast_core::material;
 
     let max_depth = 65;
@@ -374,13 +374,13 @@ where
     let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
     let mut ray_dir: [f32; 3] = ray_dir_ini.to_owned();
 
-    let ior = 1.5; // index of refraction
+    let mut ior = 1.5; // index of refraction
 
     let mut rad_out = [0.; 3];
     let mut throughput = [1.; 3];
 
     for i_depth in 0..max_depth {
-        let hit = del_geo_core::sphere::intersection_ray(0.7, sphere_cntr, &ray_org, &ray_dir);
+        let hit = intersect_sphere_with_normal(0.7, sphere_cntr, &ray_org, &ray_dir);
         if hit.is_none() {
             let nrm = vec3::normalize(&ray_dir);
             let env = mat4_col_major::transform_homogeneous(transform_env, &nrm).unwrap();
@@ -399,41 +399,70 @@ where
             rad_out = vec3::add(&rad_out, &contribution);
             break;
         }
-        let t = hit.unwrap();
+        let (hit_pos, hit_nrm) = hit.unwrap();
 
-        let hit_pos = vec3::axpy::<f32>(t, &ray_dir, &ray_org);
-        let nrm_dir = vec3::sub(&hit_pos, sphere_cntr);
-        let hit_nrm = vec3::normalize(&nrm_dir);
+        let entering = vec3::dot(&ray_dir, &hit_nrm) < 0.0;
+        let hit_nrm = if entering {
+            hit_nrm
+        } else {
+            hit_nrm.scale(-1.0)
+        };
 
         let wo = vec3::normalize(&ray_dir);
+        ior = if entering { 1. / ior } else { ior };
         if let Some((wi, brdf, pdf)) = material::sample_brdf_dielectric(
             &wo,
             &[0.243117, 0.059106, 0.000849],
-            &[1. / ior; 3],
+            &[ior; 3],
             1e-4,
             1e-4,
             rng,
         ) {
-            let cos_hit = wi.dot(&hit_nrm);
+            let cos_hit = wi.dot(&hit_nrm).abs();
             throughput = throughput.element_wise_mult(&brdf.scale(cos_hit / pdf));
-            // russian roulette
-            let &russian_roulette_prob = throughput
-                .iter()
-                .max_by(|&a, &b| a.partial_cmp(b).unwrap())
-                .unwrap();
-            if rng.random::<f32>() < russian_roulette_prob {
-                throughput = vec3::scale(&throughput, 1.0 / russian_roulette_prob);
-            } else {
-                break; // terminate ray
+
+            if i_depth > 2 {
+                // russian roulette
+                let &russian_roulette_prob = throughput
+                    .iter()
+                    .max_by(|&a, &b| a.partial_cmp(b).unwrap())
+                    .unwrap();
+                if rng.random::<f32>() < russian_roulette_prob {
+                    throughput = vec3::scale(&throughput, 1.0 / russian_roulette_prob);
+                } else {
+                    break; // terminate ray
+                }
             }
 
             ray_dir = wi;
             ray_org = vec3::axpy(1e-4, &wi, &hit_pos); //offset
         } else {
+            //
             let reflected = vec3::mirror_reflection(&ray_dir, &hit_nrm);
             ray_dir = reflected;
             ray_org = vec3::axpy(1e-4, &reflected, &hit_pos);
         };
     }
-    rad_out.element_wise_mult(&throughput)
+    rad_out
+}
+
+/// get hit position and normal(point to origin if ray is exiting sphere)
+fn intersect_sphere_with_normal(
+    radius: f32,
+    sphere_cntr: &[f32; 3],
+    ray_org: &[f32; 3],
+    ray_dir: &[f32; 3],
+) -> Option<([f32; 3], [f32; 3])> {
+    let hit = del_geo_core::sphere::intersection_ray(radius, sphere_cntr, ray_org, ray_dir);
+    if hit.is_none() {
+        None
+    } else {
+        let hit_pos = vec3::axpy::<f32>(hit.unwrap(), ray_dir, ray_org);
+        let hit_nrm = {
+            let nrm_dir = vec3::sub(&hit_pos, sphere_cntr);
+            vec3::normalize(&nrm_dir)
+        };
+
+        Some((hit_pos, hit_nrm))
+    }
 }
