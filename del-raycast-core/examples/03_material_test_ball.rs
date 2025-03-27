@@ -303,7 +303,7 @@ fn dielectric_sphere() {
         // let transform_env = del_geo_core::mat4_col_major::try_inverse(&transform_env).unwrap();
         m.as_slice().try_into().unwrap()
     };
-    let sphere_cntr = [0.15, 0.50, 0.16];
+    let sphere_cntr = [0., 0., 0.];
     let img_shape = (640, 360);
     {
         let shoot_ray = |i_pix: usize, pix: &mut [f32]| {
