@@ -239,7 +239,6 @@ where
         }
         (pdf, eta)
     };
-
     let smooth = |x: f32, y: f32| x.max(y) < 1e-3;
     // specular
     if eta == 1. || (smooth(uroughness, vroughness)) {
@@ -264,6 +263,7 @@ where
                 // https://pbr-book.org/4ed/Reflection_Models/Dielectric_BSDF#eq:transmitted-radiance-change
                 brdf /= eta * eta;
                 let pdf = pt / (pr + pt);
+
                 return Some((wt, [brdf; 3], pdf * pdf_spectral));
             }
             None // can not be refracted
@@ -310,11 +310,12 @@ pub fn refract(wi: &[f32; 3], n: &[f32; 3], eta: f32) -> Option<([f32; 3], f32)>
     };
 
     let cos_theta_t = {
-        let sqr_sin_theta_i = (1. - cos_theta_i * cos_theta_i).sqrt();
+        let sqr_sin_theta_i = (1. - cos_theta_i * cos_theta_i).max(0.).sqrt();
         let sqr_sin_theta_t = sqr_sin_theta_i / (eta * eta);
         if sqr_sin_theta_t >= 1. {
             return None;
         }
+
         (1. - sqr_sin_theta_t).sqrt()
     };
 
