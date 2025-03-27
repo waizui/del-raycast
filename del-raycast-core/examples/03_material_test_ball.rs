@@ -312,7 +312,7 @@ fn dielectric_sphere() {
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let pix = array_mut_ref![pix, 0, 3];
             let tex_info = (&tex_shape, &tex_data);
-            let nsamples = 64;
+            let nsamples = 128;
             let mut rad = [0.; 3];
             for _i_sample in 0..nsamples {
                 let dxdy = (
@@ -380,9 +380,8 @@ where
     for i_depth in 0..max_depth {
         let hit = intersect_sphere_with_normal(0.7, sphere_cntr, &ray_org, &ray_dir);
         if hit.is_none() {
-            let nrm = vec3::normalize(&ray_dir);
-
-            let env = mat4_col_major::transform_homogeneous(transform_env, &nrm).unwrap();
+            let ray_dir = vec3::normalize(&ray_dir);
+            let env = mat4_col_major::transform_homogeneous(transform_env, &ray_dir).unwrap();
             let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
 
             let color = del_canvas::texture::nearest_integer_center::<3>(
@@ -398,14 +397,14 @@ where
             rad_out = vec3::add(&rad_out, &contribution);
             break;
         }
-        let (hit_pos, hit_nrm) = hit.unwrap();
+        let (hit_pos, hit_nrm_org) = hit.unwrap();
 
-        let entering = vec3::dot(&ray_dir, &hit_nrm) < 0.0;
+        let entering = vec3::dot(&ray_dir, &hit_nrm_org) < 0.0;
         let hit_nrm = if entering {
-            hit_nrm
+            hit_nrm_org
         } else {
             //ray exiting sphere, normal point to sphere's center
-            hit_nrm.scale(-1.0)
+            hit_nrm_org.scale(-1.0)
         };
 
         let o2w = mat3_col_major::transform_lcl2world_given_local_z(&hit_nrm);
@@ -415,14 +414,14 @@ where
         ior = if entering { 1. / ior } else { ior };
         if let Some((wi, brdf, pdf)) = material::sample_brdf_dielectric(
             &wo,
-            &[0.243117, 0.059106, 0.000849],
+            &[0., 0., 0.],
             &[ior; 3],
             uroughness,
             vroughness,
             rng,
         ) {
-            let wi = mat3_col_major::mult_vec(&o2w, &wi);
-            let cos_hit = wi.dot(&hit_nrm).abs();
+            let wi_world = mat3_col_major::mult_vec(&o2w, &wi);
+            let cos_hit = wi_world.dot(&hit_nrm).abs();
             throughput = throughput.element_wise_mult(&brdf.scale(cos_hit / pdf));
 
             if i_depth > 2 {
@@ -431,6 +430,7 @@ where
                     .iter()
                     .max_by(|&a, &b| a.partial_cmp(b).unwrap())
                     .unwrap();
+
                 if rng.random::<f32>() < russian_roulette_prob {
                     throughput = vec3::scale(&throughput, 1.0 / russian_roulette_prob);
                 } else {
@@ -438,8 +438,28 @@ where
                 }
             }
 
-            ray_dir = wi;
-            ray_org = vec3::axpy(1e-4, &wi, &hit_pos); //offset
+            let leaving = vec3::dot(&wi_world, &hit_nrm_org) > 0.0;
+            if leaving {
+                let ray_dir = vec3::normalize(&hit_pos.sub(sphere_cntr));
+                let env = mat4_col_major::transform_homogeneous(transform_env, &ray_dir).unwrap();
+                let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
+
+                let color = del_canvas::texture::nearest_integer_center::<3>(
+                    &[
+                        tex_coord[0] * tex_shape.0 as f32,
+                        tex_coord[1] * tex_shape.1 as f32,
+                    ],
+                    tex_shape,
+                    tex_data,
+                );
+
+                let contribution = throughput.element_wise_mult(&color);
+                rad_out = vec3::add(&rad_out, &contribution);
+                break;
+            }
+
+            ray_dir = wi_world;
+            ray_org = vec3::axpy(1e-4, &wi_world, &hit_pos); //offset
         } else {
             // internal reflection
             let reflected = vec3::mirror_reflection(&ray_dir, &hit_nrm);
