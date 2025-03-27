@@ -311,11 +311,6 @@ fn dielectric_sphere() {
             use rand::SeedableRng;
             let mut rng = rand_chacha::ChaChaRng::seed_from_u64(i_pix as u64);
             let pix = array_mut_ref![pix, 0, 3];
-            let transforms = (
-                &transform_world2camlcl,
-                &transform_world2camlcl,
-                &transform_env,
-            );
             let tex_info = (&tex_shape, &tex_data);
             let nsamples = 64;
             let mut rad = [0.; 3];
@@ -336,7 +331,7 @@ fn dielectric_sphere() {
                     &sphere_cntr,
                     &ray_dir,
                     &ray_org,
-                    transforms,
+                    &transform_env,
                     tex_info,
                     &mut rng,
                 ));
@@ -358,19 +353,18 @@ fn pt_dielectric<RNG>(
     sphere_cntr: &[f32; 3],
     ray_dir_ini: &[f32; 3],
     ray_org_ini: &[f32; 3],
-    transforms: (&[f32; 16], &[f32; 16], &[f32; 16]),
+    transforms: &[f32; 16],
     tex_info: (&(usize, usize), &Vec<f32>),
     rng: &mut RNG,
 ) -> [f32; 3]
 where
     RNG: rand::Rng,
 {
+    use del_geo_core::mat3_col_major;
     use del_raycast_core::material;
 
     let max_depth = 65;
-    let w2c = transforms.0;
-    let c2w = transforms.1;
-    let transform_env = transforms.2;
+    let transform_env = transforms;
     let tex_shape = tex_info.0;
     let tex_data = tex_info.1;
     let mut ray_org: [f32; 3] = ray_org_ini.to_owned();
@@ -387,6 +381,7 @@ where
         let hit = intersect_sphere_with_normal(0.7, sphere_cntr, &ray_org, &ray_dir);
         if hit.is_none() {
             let nrm = vec3::normalize(&ray_dir);
+
             let env = mat4_col_major::transform_homogeneous(transform_env, &nrm).unwrap();
             let tex_coord = del_geo_core::uvec3::map_to_unit2_equal_area(&env);
 
@@ -413,7 +408,10 @@ where
             hit_nrm.scale(-1.0)
         };
 
-        let wo = vec3::normalize(&ray_dir);
+        let o2w = mat3_col_major::transform_lcl2world_given_local_z(&hit_nrm);
+        let w2o = mat3_col_major::transpose(&o2w);
+        let wo = mat3_col_major::mult_vec(&w2o, &vec3::normalize(&ray_dir));
+
         ior = if entering { 1. / ior } else { ior };
         if let Some((wi, brdf, pdf)) = material::sample_brdf_dielectric(
             &wo,
@@ -423,6 +421,7 @@ where
             vroughness,
             rng,
         ) {
+            let wi = mat3_col_major::mult_vec(&o2w, &wi);
             let cos_hit = wi.dot(&hit_nrm).abs();
             throughput = throughput.element_wise_mult(&brdf.scale(cos_hit / pdf));
 
